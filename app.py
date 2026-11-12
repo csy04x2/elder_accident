@@ -1,6 +1,7 @@
 """서울 고령 보행자 교통사고 탐색 대시보드 (기존 processed CSV 전용)."""
 from pathlib import Path
 import json
+from html import escape
 
 import folium
 import pandas as pd
@@ -44,6 +45,7 @@ def wkt_geojson(wkt):
     from shapely.geometry import mapping
     return mapping(shapely_wkt.loads(wkt))
 
+
 def plot_map(hs, zones, links):
     joined = hs.merge(links[["다발지역FID", "경계중첩", "최단거리_m"]], on="다발지역FID", how="left", validate="one_to_one")
     centers = joined[["위도", "경도"]].apply(pd.to_numeric, errors="coerce").dropna()
@@ -57,8 +59,19 @@ def plot_map(hs, zones, links):
             continue
         try:
             geo = wkt_geojson(row["경계WKT"])
-            folium.GeoJson(geo, style_function=lambda feature: {"color":"#2563eb", "weight":2, "fillColor":"#60a5fa", "fillOpacity":0.18},
-                           tooltip=f"보호구역: {row['API시설명']}").add_to(z_layer)
+            name = escape(str(row["API시설명"]))
+            area = escape(str(row["자치구명"]))
+            designated = "자료 없음" if pd.isna(row["지정연도"]) else str(int(row["지정연도"])) + "년 (명단 기준)"
+            popup = folium.Popup(
+                f"<b>노인보호구역 API 경계</b><br>시설: {name}<br>자치구: {area}<br>지정연도: {designated}",
+                max_width=340,
+            )
+            folium.GeoJson(
+                geo,
+                style_function=lambda feature: {"color": "#2563eb", "weight": 2, "fillColor": "#60a5fa", "fillOpacity": 0.18},
+                tooltip=f"보호구역: {row['API시설명']}",
+                popup=popup,
+            ).add_to(z_layer)
         except (ValueError, TypeError):
             continue
     for _, row in joined.iterrows():
@@ -66,10 +79,25 @@ def plot_map(hs, zones, links):
             continue
         try:
             geo = json.loads(row["다발지역폴리곤"])
-            overlap = pd.notna(row["경계중첩"]) and int(row["경계중첩"]) == 1
-            color = "#dc2626" if overlap else "#f59e0b"
-            folium.GeoJson(geo, style_function=lambda feature, c=color: {"color":c, "weight":2, "fillColor":c, "fillOpacity":0.36},
-                           tooltip=f"{row['지점명']} | {'경계 중첩' if overlap else '비중첩/판정 미상'} | {row['사고연도']}년 선정자료").add_to(h_layer)
+            known = pd.notna(row["경계중첩"])
+            overlap = known and int(row["경계중첩"]) == 1
+            label = "중첩" if overlap else ("비중첩" if known else "판정 미상")
+            color = "#dc2626" if overlap else ("#f59e0b" if known else "#64748b")
+            name = escape(str(row["지점명"]))
+            accident_count = "자료 없음" if pd.isna(row["사고건수"]) else f"{int(row['사고건수']):,}건"
+            distance = "자료 없음" if pd.isna(row["최단거리_m"]) else f"{float(row['최단거리_m']):,.1f}m"
+            popup = folium.Popup(
+                f"<b>사고다발지역 선정 영역</b><br>지점: {name}<br>사고연도: {int(row['사고연도'])}년"
+                f"<br>선정지역 집계 사고건수: {accident_count}<br>경계 중첩: {label}"
+                f"<br>서울 전체 API 경계까지 최단 직선거리: {distance}",
+                max_width=400,
+            )
+            folium.GeoJson(
+                geo,
+                style_function=lambda feature, c=color: {"color": c, "weight": 2, "fillColor": c, "fillOpacity": 0.36},
+                tooltip=f"{row['지점명']} | {label} | 사고연도 {int(row['사고연도'])}년",
+                popup=popup,
+            ).add_to(h_layer)
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
     z_layer.add_to(m)
@@ -123,38 +151,34 @@ elif page == "지역별 사고 현황":
                           format_func=lambda x: "사고건수 (건)" if x == "고령보행자_사고건수" else "65세 이상 거주인구 1만 명당 사고 (건)")
         fig = px.bar(usable.sort_values(metric, ascending=False), x="자치구명", y=metric, color="자치구명", text_auto=".1f" if metric != "고령보행자_사고건수" else ".0f")
         fig.update_layout(showlegend=False, xaxis_title="자치구", yaxis_title="건" if metric == "고령보행자_사고건수" else "건/1만 명")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     st.subheader("동대문구 · 도봉구 연도별 비교")
     comparison = panel.loc[panel["자치구명"].isin(["동대문구", "도봉구"])].dropna(subset=["고령보행자_사고건수"])
     fig2 = px.line(comparison, x="사고연도", y="고령보행자_사고건수", color="자치구명", markers=True)
     fig2.update_layout(xaxis=dict(dtick=1), yaxis_title="사고건수 (건)")
-    st.plotly_chart(fig2, use_container_width=True)
-    st.dataframe(p[["사고연도", "자치구명", "고령인구", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고", "고령보행자_출처"]], hide_index=True, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
+    st.dataframe(p[["사고연도", "자치구명", "고령인구", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고", "고령보행자_출처"]], hide_index=True, width="stretch")
     st.caption("출처: 01_자치구연도_패널.csv. 사고 발생 지역 기준이며 인구는 거주지 기준입니다. 결측은 0이 아닙니다. 연도별 출처·포괄 범위가 다릅니다.")
 
 elif page == "공간 분석 지도":
-    st.markdown("""
-    **지도 범례**
-
-    🔵 파란색: 노인보호구역 경계
-
-    🔴 빨간색: 보호구역 경계와 중첩된 사고다발지역
-
-    🟡 노란색: 보호구역 경계와 비중첩된 사고다발지역
-    (판정값이 없는 경우 포함 가능)
-    """)
-
     st.subheader(f"{year}년 사고다발지역과 확보된 보호구역 경계")
+    st.markdown("🔵 **파랑:** 보호구역 API 경계　 🔴 **빨강:** 중첩 사고다발지역　 🟡 **주황:** 비중첩 사고다발지역　 ⚪ **회색:** 판정 미상")
     if year <= 2020:
         st.warning("2020년 이전 사고다발지역은 이후와 선정 기준이 달라 연도 간 직접 비교에 주의해야 합니다.")
-    st.write("파랑: 노인보호구역 API 경계 · 빨강: 면적 중첩 사고다발지역 · 주황: 비중첩 사고다발지역")
     view, joined = plot_map(h, z, links)
-    left, right = st.columns(2)
-    left.metric("사고다발지역", fmt(len(joined), "곳"))
-    right.metric("경계 중첩 지역", fmt(joined["경계중첩"].fillna(0).sum(), "곳"))
+    known = joined["경계중첩"].notna()
+    overlapping = int((joined.loc[known, "경계중첩"] == 1).sum())
+    nonoverlapping = int((joined.loc[known, "경계중첩"] == 0).sum())
+    unknown = int((~known).sum())
+    a, b, c, d = st.columns(4)
+    a.metric("선정지역", f"{len(joined)}곳")
+    b.metric("경계 중첩", f"{overlapping}곳")
+    c.metric("비중첩", f"{nonoverlapping}곳")
+    d.metric("판정 미상", f"{unknown}곳")
+    st.caption("지도 영역을 클릭하면 집계 사고건수·중첩 여부·최근접 보호구역 경계까지의 직선거리가 나옵니다.")
     st_folium(view, width=None, height=550, returned_objects=[])
-    st.dataframe(joined[["지점명", "사고연도", "사고건수", "경계중첩", "최단거리_m"]], hide_index=True, use_container_width=True)
-    st.caption("출처: 03·05·06 가공 CSV. 사고다발지역은 사고 지점이 아니라 선정된 영역입니다. 경계는 현행 API 자료이며 공식 시설을 빠짐없이 포괄하지 않을 수 있습니다. 최근접 거리는 폴리곤 간 직선거리이고 구 경계를 넘는 구역도 계산에 포함합니다.")
+    st.dataframe(joined[["지점명", "사고연도", "사고건수", "경계중첩", "최단거리_m"]], hide_index=True, width="stretch")
+    st.caption("출처: 03·05·06 가공 CSV. 사고다발지역은 개별 사고 지점이 아니라 선정된 영역입니다. 경계는 현행 API 자료로, 공식 지정 시설 전체를 포괄하지 않을 수 있습니다. 최단거리는 선택한 자치구가 아니라 서울 전체 경계를 대상으로 계산하며 보행 경로 거리가 아닙니다. 연도별 선정 기준과 과거 실제 경계는 다를 수 있습니다.")
 
 else:
     st.subheader("보호구역 지정 전후 탐색 — 사고 감소 효과 분석 불가")
@@ -163,11 +187,11 @@ else:
     if gu != "서울 전체":
         candidates = candidates[candidates["자치구명"] == gu]
     st.metric("선택 범위 신규 등재 시설", f"{len(candidates)}곳")
-    st.dataframe(candidates[["시설명", "자치구명", "지정연도", "최초등재명단", "API경계기록수"]], hide_index=True, use_container_width=True)
+    st.dataframe(candidates[["시설명", "자치구명", "지정연도", "최초등재명단", "API경계기록수"]], hide_index=True, width="stretch")
     st.subheader("사고다발지역 선정 기록 추이 (효과 추정 아님)")
     counts = hotspots.loc[(hotspots["자치구명"] == gu) if gu != "서울 전체" else slice(None)].groupby(["사고연도", "선정기준구간"], as_index=False).size()
     fig = px.bar(counts, x="사고연도", y="size", color="선정기준구간", barmode="group", labels={"size":"선정 지역 수 (곳)", "사고연도":"사고연도"})
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption("출처: 03·04 가공 CSV. A/B 선정 기준의 단절 때문에 두 구간을 하나의 사고 추세로 해석할 수 없습니다. 신규 명단 등재연도는 실제 지정 고시일이 아니며, 당시 경계도 확인되지 않았습니다. 개별 사고 자료와 정보공개청구 결과 확보 후 지정 효과 판단이 가능합니다.")
 
 st.divider()
