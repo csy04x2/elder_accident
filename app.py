@@ -43,22 +43,27 @@ CSS = f"""
 [data-testid="stSidebar"] {{ background: {NAVY}; }}
 [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {{ color: #E6EAF0; }}
 [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p {{ color: #9DB0C9; font-size: 12px; font-weight: 600; }}
-[data-testid="stSidebar"] [data-baseweb="select"] > div {{ background: #17263C; border-color: #3A4A63; min-height: 44px; }}
-[data-testid="stSidebar"] [data-baseweb="select"] div {{ color: #FFFFFF; }}
-[data-testid="stSidebar"] [data-baseweb="select"] svg {{ fill: #E6EAF0; }}
-[data-testid="stSidebar"] div[role="radiogroup"] {{ gap: 4px; }}
-[data-testid="stSidebar"] div[role="radiogroup"] label {{ min-height: 44px; padding: 0 12px; border-radius: 8px; width: 100%; align-items: center; }}
-[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none; }}
-[data-testid="stSidebar"] div[role="radiogroup"] label p {{ font-size: 15px; }}
-[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{ background: #FFFFFF; }}
-[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{ color: {NAVY}; font-weight: 600; }}
+[data-testid="stSidebar"] [data-baseweb="select"] > div {{ background: #FFFFFF !important; border-color: #FFFFFF !important; min-height: 44px; border-radius: 8px; }}
+[data-testid="stSidebar"] [data-baseweb="select"] div {{ color: {INK} !important; }}
+/* 화면 메뉴: 모든 행을 같은 높이(44px)로, 라디오 동그라미는 숨김 */
+[data-testid="stSidebar"] div[role="radiogroup"] {{ gap: 4px !important; margin: 0 0 12px; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label {{ display: flex !important; align-items: center !important; box-sizing: border-box;
+  width: 100%; height: 44px; min-height: 44px; margin: 0 !important; padding: 0 12px !important; border-radius: 8px; cursor: pointer; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-of-type {{ display: none !important; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label > div:last-child {{ display: flex !important; align-items: center; margin: 0 !important; padding: 0 !important; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] {{ margin: 0 !important; padding: 0 !important; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label p {{ margin: 0 !important; font-size: 15px; line-height: 1.2; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {{ background: #17263C; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {{ background: #FFFFFF; }}
+[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {{ color: {NAVY} !important; font-weight: 600; }}
+.ea-brand {{ margin-bottom: 20px; }}
 .ea-brand small {{ display: block; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: #9DB0C9; }}
 .ea-brand b {{ display: block; margin-top: 6px; font-size: 19px; line-height: 1.35; color: #FFFFFF; }}
 .ea-side-note {{ font-size: 12px; line-height: 1.6; color: #9DB0C9; }}
 
 /* 본문 */
 .ea-eyebrow {{ font-size: 13px; font-weight: 600; color: {MUTED}; }}
-.ea-title {{ margin: 8px 0 0; font-size: 32px; line-height: 1.3; font-weight: 700; letter-spacing: -.01em; color: {INK}; }}
+.ea-title {{ margin: 8px 0 0 !important; padding: 0 !important; font-size: 32px !important; line-height: 1.3; font-weight: 700; letter-spacing: -.01em; color: {INK}; }}
 .ea-lead {{ margin: 10px 0 0; max-width: 820px; font-size: 16px; line-height: 1.6; color: #344054; }}
 .ea-kpis {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 24px 0 8px; }}
 .ea-kpi {{ background: #FFFFFF; border: 1px solid {LINE}; border-radius: 12px; padding: 20px; }}
@@ -67,7 +72,7 @@ CSS = f"""
 .ea-kpi .v span {{ font-size: 16px; font-weight: 500; color: {MUTED}; }}
 .ea-kpi .d {{ margin-top: 8px; font-size: 13px; color: {MUTED}; }}
 .ea-kpi .d.up {{ color: #B93815; font-weight: 600; }}
-.ea-h2 {{ margin: 0; font-size: 18px; font-weight: 700; color: {INK}; }}
+.ea-h2 {{ margin: 0 !important; padding: 0 !important; font-size: 18px !important; line-height: 1.4 !important; font-weight: 700; color: {INK}; }}
 .ea-sub {{ margin-top: 4px; font-size: 13px; color: {MUTED}; }}
 .ea-src {{ font-size: 12px; color: {MUTED}; }}
 .ea-note {{ background: #E9EEF6; border-radius: 12px; padding: 20px 24px; margin-top: 8px; }}
@@ -272,6 +277,13 @@ for df in (panel, hotspots, master, zones, links):
         if col in df:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+# 자치구 25곳을 색만으로 구분하기는 어려워서 색 + 선 모양 + 표식 모양을 함께 고정 배정한다.
+GU_COLORS = ["#C2410C", "#1D4ED8", "#0F766E", "#7C3AED", "#BE185D", "#4D7C0F", "#0369A1", "#B45309", "#111827", "#DC2626",
+             "#0891B2", "#A16207", "#6D28D9", "#15803D", "#DB2777", "#475569", "#EA580C", "#2563EB", "#059669", "#9333EA",
+             "#9F1239", "#65A30D", "#0E7490", "#CA8A04", "#4338CA"]
+GU_DASHES = ["solid", "dash", "dot", "dashdot", "longdash"]
+GU_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "x", "star", "triangle-down"]
+
 PAGES = ["개요", "지역별 사고 현황", "공간 분석 지도", "지정 전후 탐색"]
 years = sorted(panel["사고연도"].dropna().astype(int).unique())
 gu_list = sorted(panel["자치구명"].dropna().unique())
@@ -402,14 +414,19 @@ elif page == "지역별 사고 현황":
         if comparison.empty:
             st.info("비교할 자치구를 하나 이상 선택해 주세요.")
         else:
-            fig2 = px.line(comparison, x="사고연도", y="고령보행자_사고건수", color="자치구명", markers=True,
-                           color_discrete_sequence=[ORANGE, BLUE, "#0F766E", "#7C3AED", GRAY, "#B45309", "#0369A1", "#BE185D"],
+            look = {g: (GU_COLORS[i % len(GU_COLORS)], GU_DASHES[i % len(GU_DASHES)], GU_SYMBOLS[i % len(GU_SYMBOLS)])
+                    for i, g in enumerate(gu_list)}
+            fig2 = px.line(comparison, x="사고연도", y="고령보행자_사고건수", color="자치구명", line_dash="자치구명", symbol="자치구명",
+                           category_orders={"자치구명": [g for g in gu_list if g in picked]},
+                           color_discrete_map={g: v[0] for g, v in look.items()},
+                           line_dash_map={g: v[1] for g, v in look.items()},
+                           symbol_map={g: v[2] for g, v in look.items()},
                            labels={"사고연도": "", "고령보행자_사고건수": "사고 건수", "자치구명": "자치구"})
-            fig2.update_traces(line=dict(width=3), marker=dict(size=8))
+            fig2.update_traces(line=dict(width=2.5), marker=dict(size=9))
             fig2.update_xaxes(dtick=1, showgrid=False)
-            fig2.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.12, title_text=""))
-            st.plotly_chart(style(fig2, 380), width="stretch")
-        source("결측값은 0건으로 바꾸지 않고 비워 둡니다.")
+            fig2.update_layout(hovermode="closest", legend=dict(orientation="v", x=1.02, y=1, xanchor="left", yanchor="top", title_text=""))
+            st.plotly_chart(style(fig2, max(380, 24 * len(picked) + 80)), width="stretch")
+        source("자치구마다 색·선 모양·표식 모양이 고정돼 있습니다. 범례를 누르면 해당 구를 숨기거나 다시 볼 수 있습니다. 결측값은 0건으로 바꾸지 않고 비워 둡니다.")
 
     with st.expander("자료 표 보기"):
         st.dataframe(p[["사고연도", "자치구명", "고령인구", "고령보행자_사고건수", "고령보행자_사망자수",
