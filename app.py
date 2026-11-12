@@ -177,6 +177,36 @@ elif page == "공간 분석 지도":
     d.metric("판정 미상", f"{unknown}곳")
     st.caption("지도 영역을 클릭하면 집계 사고건수·중첩 여부·최근접 보호구역 경계까지의 직선거리가 나옵니다.")
     st_folium(view, width=None, height=550, returned_objects=[])
+    st.subheader("자치구별 사고다발지역 공간 중첩 현황")
+    st.caption("선택한 사고연도의 사고다발지역 *선정 영역 수(곳)*입니다. 개별 사고건수가 아닙니다.")
+    chart_data = joined[["자치구명", "경계중첩"]].copy()
+    chart_data["분류"] = chart_data["경계중첩"].map({1: "경계 중첩", 0: "비중첩"}).fillna("판정 미상")
+    chart_counts = chart_data.groupby(["자치구명", "분류"], as_index=False).size().rename(columns={"size": "선정지역 수"})
+    if chart_counts.empty:
+        st.info("선택한 연도와 자치구에는 공식 선정 기준을 충족한 사고다발지역 기록이 없습니다.")
+    else:
+        chart_order = (chart_counts.groupby("자치구명")["선정지역 수"].sum()
+                       .sort_values(ascending=False).index.tolist())
+        fig_overlap = px.bar(
+            chart_counts, x="자치구명", y="선정지역 수", color="분류",
+            category_orders={"자치구명": chart_order,
+                             "분류": ["경계 중첩", "비중첩", "판정 미상"]},
+            color_discrete_map={"경계 중첩": "#dc2626", "비중첩": "#f59e0b", "판정 미상": "#64748b"},
+            labels={"자치구명": "자치구", "선정지역 수": "선정지역 수 (곳)"},
+            barmode="stack", text_auto=True,
+        )
+        fig_overlap.update_layout(xaxis_title="자치구", yaxis_title="선정지역 수 (곳)")
+        st.plotly_chart(fig_overlap, width="stretch")
+        determined = overlapping + nonoverlapping
+        if determined:
+            st.caption(f"선택 범위의 판정 가능 지역 {determined}곳 중 비중첩 {nonoverlapping}곳 "
+                       f"({nonoverlapping / determined:.1%}). 판정 미상 {unknown}곳은 비율에서 제외했습니다.")
+        else:
+            st.caption("중첩 판정 가능한 지역이 없어 비중첩 비율을 계산하지 않습니다.")
+    st.caption("출처: 03_다발지역_서울.csv · 06_다발지역_보호구역_연결.csv. "
+               "현행 API 경계와 비교한 공간 관계로서, 당시 지정 경계 또는 사고 예방 효과를 입증하지 않습니다. "
+               "2020년 이전과 이후는 사고다발지역 선정 기준이 달라 연도 간 직접 비교에 주의해야 합니다.")
+
     st.dataframe(joined[["지점명", "사고연도", "사고건수", "경계중첩", "최단거리_m"]], hide_index=True, width="stretch")
     st.caption("출처: 03·05·06 가공 CSV. 사고다발지역은 개별 사고 지점이 아니라 선정된 영역입니다. 경계는 현행 API 자료로, 공식 지정 시설 전체를 포괄하지 않을 수 있습니다. 최단거리는 선택한 자치구가 아니라 서울 전체 경계를 대상으로 계산하며 보행 경로 거리가 아닙니다. 연도별 선정 기준과 과거 실제 경계는 다를 수 있습니다.")
 
