@@ -137,7 +137,7 @@ if page == "프로젝트 개요":
     a.metric(f"{year}년 사고건수 (자료 있는 구)", fmt(p["고령보행자_사고건수"].sum() if valid.any() else float('nan')))
     b.metric("사고건수 자료 확보 자치구", f"{valid.sum()} / {len(p)}개")
     c.metric("사고다발지역 선정 기록", fmt(len(h), "곳"))
-    st.info("2022~2024년 고령 보행자 사고건수는 동대문·도봉만 확보됐습니다. 서울 전체 합계처럼 해석하지 마세요.")
+    st.info("2022~2025년 자치구별 사고건수는 서울 25개 구 통합 자료를 사용합니다. 연도·지역 필터에 따라 집계 범위가 달라집니다.")
     st.markdown("**주요 발견(기존 분석)**: 2025년 서울 사고다발지역 71곳 중 59곳이 확보된 보호구역 API 경계와 면적 중첩하지 않았습니다. 이 비율은 개별 사고의 보호구역 밖 발생 비율이 아닙니다.")
     st.caption("출처: TAAS 고령 보행자 사고 통계·사고다발지역, 서울시 보호구역 지정 명단, 행정안전부 보호구역 API. 분석 방식과 세부 출처는 README 및 데이터사전.md 참조.")
 
@@ -152,13 +152,38 @@ elif page == "지역별 사고 현황":
         fig = px.bar(usable.sort_values(metric, ascending=False), x="자치구명", y=metric, color="자치구명", text_auto=".1f" if metric != "고령보행자_사고건수" else ".0f")
         fig.update_layout(showlegend=False, xaxis_title="자치구", yaxis_title="건" if metric == "고령보행자_사고건수" else "건/1만 명")
         st.plotly_chart(fig, width="stretch")
-    st.subheader("동대문구 · 도봉구 연도별 비교")
-    comparison = panel.loc[panel["자치구명"].isin(["동대문구", "도봉구"])].dropna(subset=["고령보행자_사고건수"])
-    fig2 = px.line(comparison, x="사고연도", y="고령보행자_사고건수", color="자치구명", markers=True)
-    fig2.update_layout(xaxis=dict(dtick=1), yaxis_title="사고건수 (건)")
-    st.plotly_chart(fig2, width="stretch")
+    st.subheader("서울 25개 자치구 연도별 고령 보행자 사고 추이")
+    st.caption("2022~2025년 사고건수(건). 아래 체크박스로 그래프에 표시할 자치구를 선택하세요. 상단 사고연도 필터는 이 4개년 추이에는 적용되지 않습니다.")
+    district_names = sorted(panel["자치구명"].dropna().unique().tolist())
+    for district in district_names:
+        st.session_state.setdefault(f"trend_{district}", district in ("동대문구", "도봉구"))
+
+    def select_districts(checked):
+        for district in district_names:
+            st.session_state[f"trend_{district}"] = checked
+
+    all_col, none_col, _ = st.columns([1, 1, 5])
+    all_col.button("전체 선택", on_click=select_districts, args=(True,), key="trend_select_all")
+    none_col.button("전체 해제", on_click=select_districts, args=(False,), key="trend_select_none")
+    check_cols = st.columns(5)
+    for i, district in enumerate(district_names):
+        with check_cols[i % 5]:
+            st.checkbox(district, key=f"trend_{district}")
+
+    selected_districts = [district for district in district_names if st.session_state[f"trend_{district}"]]
+    comparison = panel.loc[panel["자치구명"].isin(selected_districts)].dropna(subset=["고령보행자_사고건수"])
+    if comparison.empty:
+        st.info("표시할 자치구를 하나 이상 선택해 주세요.")
+    else:
+        fig2 = px.line(comparison.sort_values("사고연도"), x="사고연도", y="고령보행자_사고건수",
+                       color="자치구명", markers=True,
+                       labels={"사고연도": "사고연도", "고령보행자_사고건수": "사고건수 (건)", "자치구명": "자치구"})
+        fig2.update_layout(xaxis=dict(dtick=1), yaxis_title="사고건수 (건)",
+                           legend_title_text="자치구", hovermode="x unified")
+        st.plotly_chart(fig2, width="stretch")
+    st.caption("출처: 01_자치구연도_패널.csv · TAAS 시군구 사고통계. 선택한 자치구만 표시하며 결측값을 0건으로 대체하지 않습니다.")
     st.dataframe(p[["사고연도", "자치구명", "고령인구", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고", "고령보행자_출처"]], hide_index=True, width="stretch")
-    st.caption("출처: 01_자치구연도_패널.csv. 사고 발생 지역 기준이며 인구는 거주지 기준입니다. 결측은 0이 아닙니다. 연도별 출처·포괄 범위가 다릅니다.")
+    st.caption("출처: 01_자치구연도_패널.csv. 사고는 발생 지역 기준이며 고령인구는 거주지 기준입니다. 결측은 0이 아닙니다. 연도·지표별 자료 범위와 출처를 구분해야 합니다.")
 
 elif page == "공간 분석 지도":
     st.subheader(f"{year}년 사고다발지역과 확보된 보호구역 경계")
