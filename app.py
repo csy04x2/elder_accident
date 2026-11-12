@@ -130,16 +130,50 @@ h = hotspots.loc[(hotspots["사고연도"] == year) & ((hotspots["자치구명"]
 z = zones.loc[(zones["자치구명"] == gu) if gu != "서울 전체" else slice(None)].copy()
 
 if page == "프로젝트 개요":
-    st.subheader("무엇을 확인할 수 있나요?")
-    st.write("노인보호구역 지정 이후 사고가 감소했는가, 사고다발지역과 보호구역이 얼마나 겹치는가, 동대문구와 도봉구의 차이가 무엇인가를 탐색합니다.")
-    valid = p["고령보행자_사고건수"].notna()
-    a, b, c = st.columns(3)
-    a.metric(f"{year}년 사고건수 (자료 있는 구)", fmt(p["고령보행자_사고건수"].sum() if valid.any() else float('nan')))
-    b.metric("사고건수 자료 확보 자치구", f"{valid.sum()} / {len(p)}개")
-    c.metric("사고다발지역 선정 기록", fmt(len(h), "곳"))
-    st.info("2022~2025년 자치구별 사고건수는 서울 25개 구 통합 자료를 사용합니다. 연도·지역 필터에 따라 집계 범위가 달라집니다.")
-    st.markdown("**주요 발견(기존 분석)**: 2025년 서울 사고다발지역 71곳 중 59곳이 확보된 보호구역 API 경계와 면적 중첩하지 않았습니다. 이 비율은 개별 사고의 보호구역 밖 발생 비율이 아닙니다.")
-    st.caption("출처: TAAS 고령 보행자 사고 통계·사고다발지역, 서울시 보호구역 지정 명단, 행정안전부 보호구역 API. 분석 방식과 세부 출처는 README 및 데이터사전.md 참조.")
+    st.subheader("서울의 고령 보행자는 얼마나 안전하게 걷고 있을까?")
+    st.write("2022~2025년 서울 25개 자치구의 고령 보행자 사고 통계로 사고 규모와 변화를 살펴봅니다. 보호구역의 사고 예방 효과는 아직 검증하지 않았습니다.")
+
+    scope = "서울 전체" if gu == "서울 전체" else gu
+    valid = p.dropna(subset=["고령보행자_사고건수"])
+    total_accidents = valid["고령보행자_사고건수"].sum() if not valid.empty else float("nan")
+    elderly_population = pd.to_numeric(valid["고령인구"], errors="coerce").sum(min_count=1)
+    rate = total_accidents / elderly_population * 10000 if pd.notna(elderly_population) and elderly_population > 0 else float("nan")
+    official_facilities = pd.to_numeric(p["보호구역_명단시설수"], errors="coerce").sum(min_count=1)
+
+    st.caption(f"선택 범위: {scope} · {year}년 | 사고 발생 지역 기준")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("고령 보행자 사고건수", fmt(total_accidents))
+    m2.metric("65세 이상 거주인구 1만 명당 사고", fmt(rate, "건", 1))
+    m3.metric("연말 명단상 노인보호구역 시설", fmt(official_facilities, "곳"))
+    st.caption("사고건수: TAAS 시군구 통계 · 고령인구: 자치구별 65세 이상 주민등록인구 · 보호구역: 서울시 연말 지정 명단상 시설 수 (API 경계 기록 수와 다름)")
+
+    st.subheader("01. 고령 보행자 사고는 어떻게 변했을까?")
+    trend = panel.copy()
+    if gu != "서울 전체":
+        trend = trend[trend["자치구명"] == gu]
+    trend = (trend.groupby("사고연도", as_index=False)["고령보행자_사고건수"]
+             .sum(min_count=1).sort_values("사고연도"))
+    if trend["고령보행자_사고건수"].notna().any():
+        fig_overview = px.line(
+            trend, x="사고연도", y="고령보행자_사고건수", markers=True,
+            labels={"사고연도": "사고연도", "고령보행자_사고건수": "사고건수 (건)"},
+            title=f"{scope} · 2022~2025년 사고건수",
+        )
+        fig_overview.update_layout(xaxis=dict(dtick=1), yaxis_title="사고건수 (건)")
+        st.plotly_chart(fig_overview, width="stretch")
+    else:
+        st.info("선택한 범위에 연도별 사고건수 자료가 없습니다.")
+    st.caption("출처: data/processed/01_자치구연도_패널.csv · TAAS 시군구별 보행노인 사고통계. 이 추이 그래프는 상단에서 고른 단일 연도가 아닌 2022~2025년 전체를 보여줍니다.")
+
+    st.subheader("02. 자치구에 따라 사고 수준이 다를까?")
+    st.write("사고건수와 고령인구 1만 명당 사고율은 서로 다른 질문에 답합니다. ‘지역별 사고 현황’에서 25개 자치구를 비교하고, 체크박스로 여러 지역의 연도별 변화를 살펴볼 수 있습니다.")
+
+    st.subheader("03. 노인보호구역은 얼마나 지정돼 있을까?")
+    st.write("위의 보호구역 수는 서울시 연말 명단에 등재된 시설 수입니다. 실제 보호구역 경계, 지정 당시의 위치와 범위, 안전시설 정비 수준까지 뜻하지는 않습니다.")
+
+    st.subheader("다음 질문 · 노인보호구역은 실제로 사고를 줄이는가?")
+    st.info("사고 통계와 보호구역 지정 현황만으로 정책의 인과적 실효성을 판정할 수 없습니다. 과제 2에서는 동일 보호구역의 지정 전후 사고 통계, 실제 지정 구간과 시행 시점, 안전시설 개선 및 행정 판단 자료를 확보해 검증해야 합니다.")
+    st.caption("자료 해석: 발생지역 사고건수와 거주인구는 분모·분자의 성격이 다릅니다. 2022~2024년 자치구별 사망·부상자 수는 일부 지역만 확보됐으며 결측은 0이 아닙니다. 세부 출처·한계는 README.md와 데이터사전.md를 참고하세요.")
 
 elif page == "지역별 사고 현황":
     st.subheader(f"{year}년 자치구별 고령 보행자 사고")
