@@ -1,0 +1,7 @@
+# 대시보드 기본 테마. 세부 스타일은 app.py 상단의 CSS에서 정합니다.
+[theme]
+base = "light"
+primaryColor = "#1D4ED8"
+backgroundColor = "#F3F5F8"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#101828"
