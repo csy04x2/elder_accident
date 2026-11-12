@@ -208,7 +208,7 @@ comp = e22_24.merge(dg[keys + ['고령보행자_사고건수']], on=keys,
                     how='inner', suffixes=('_TAAS', '_상세'))
 assert (comp['고령보행자_사고건수_TAAS'] == comp['고령보행자_사고건수_상세']).all(), '상세 사고건수와 불일치'
 e22_24['고령보행자_출처'] = 'TAAS 시군구통계'
-panel = panel.merge(pd.concat([e25, e22_24], ignore_index=True), on=['사고연도', '자치구명'], how='left', validate='one_to_one').merge(stat('2025_전체보행자사고.xlsx', '전체보행자_'), on=['사고연도', '자치구명'], how='left')
+panel = panel.merge(pd.concat([e25, e22_24], ignore_index=True), on=['사고연도', '자치구명'], how='left', validate='one_to_one').merge(pd.read_csv(RAW + '2022-2025_서울25개구_전체보행자_사고사망부상.csv', encoding='utf-8-sig'), on=['사고연도', '자치구명'], how='left', validate='one_to_one')
 
 # 2025년 65세 이상 생활인구 (남녀 65~69세 + 70세 이상)
 lv = pd.read_csv(RAW + '250_LOCAL_RESD_GU_2025.csv', encoding='cp949')
