@@ -47,15 +47,15 @@ CSS = f"""
 [data-testid="stSidebar"] [data-baseweb="select"] div {{ color: {INK} !important; }}
 /* 화면 메뉴: 모든 행을 같은 높이(44px)로, 라디오 동그라미는 숨김 */
 [data-testid="stSidebar"] div[role="radiogroup"] {{ gap: 4px !important; margin: 0 0 12px; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label {{ display: flex !important; align-items: center !important; box-sizing: border-box;
+[data-testid="stSidebar"] div[role="radiogroup"] label {{ display: flex !important; align-items: center !important; box-sizing: border-box;
   width: 100%; height: 44px; min-height: 44px; margin: 0 !important; padding: 0 12px !important; border-radius: 8px; cursor: pointer; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label > div:first-of-type {{ display: none !important; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label > div:last-child {{ display: flex !important; align-items: center; margin: 0 !important; padding: 0 !important; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] {{ margin: 0 !important; padding: 0 !important; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label p {{ margin: 0 !important; font-size: 15px; line-height: 1.2; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {{ background: #17263C; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) {{ background: #FFFFFF; }}
-[data-testid="stSidebar"] div[role="radiogroup"] > label:has(input:checked) p {{ color: {NAVY} !important; font-weight: 600; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-of-type {{ display: none !important; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label > div:last-child {{ display: flex !important; align-items: center; margin: 0 !important; padding: 0 !important; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label div[data-testid="stMarkdownContainer"] {{ margin: 0 !important; padding: 0 !important; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label p {{ margin: 0 !important; font-size: 15px; line-height: 1.2; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label:hover {{ background: #17263C; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{ background: #FFFFFF; }}
+[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {{ color: {NAVY} !important; font-weight: 600; }}
 .ea-brand {{ margin-bottom: 20px; }}
 .ea-brand small {{ display: block; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: #9DB0C9; }}
 .ea-brand b {{ display: block; margin-top: 6px; font-size: 19px; line-height: 1.35; color: #FFFFFF; }}
@@ -210,7 +210,7 @@ def plot_map(hs, zones, links):
     joined = hs.merge(links[["다발지역FID", "경계중첩", "최단거리_m"]], on="다발지역FID", how="left", validate="one_to_one")
     centers = joined[["위도", "경도"]].apply(pd.to_numeric, errors="coerce").dropna()
     lat, lon = (centers["위도"].mean(), centers["경도"].mean()) if len(centers) else (37.5665, 126.9780)
-    m = folium.Map(location=[lat, lon], zoom_start=12 if len(centers) else 11, tiles="CartoDB positron")
+    m = folium.Map(location=[lat, lon], zoom_start=12 if len(centers) else 11, tiles="OpenStreetMap")
     Fullscreen().add_to(m)
     z_layer = folium.FeatureGroup(name=f"보호구역 API 경계 ({len(zones)}건)", show=True)
     h_layer = folium.FeatureGroup(name=f"사고다발지역 ({len(joined)}곳)", show=True)
