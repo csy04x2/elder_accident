@@ -194,12 +194,19 @@ def stat(f, pre):
 e25 = stat('2025_고령보행자사고.xlsx', '고령보행자_').assign(고령보행자_출처='TAAS 시군구통계')
 dg = det.groupby(['사고연도', '자치구명']).agg(고령보행자_사고건수=('구분번호', 'size'), 고령보행자_사망자수=('사망자수', 'sum'), 고령보행자_부상자수=('부상자수', 'sum')).reset_index()
 dg = dg[dg['사고연도'] < 2025]
-# TAAS 2022~2024 district totals; keep death/injury detail where independently available.
-e22_24 = pd.read_csv(RAW + '2022-2024_서울25개구_고령보행자사고.csv', encoding='utf-8-sig')
-assert len(e22_24) == 75 and not e22_24.duplicated(['사고연도', '자치구명']).any()
-comp = e22_24.merge(dg[['사고연도', '자치구명', '고령보행자_사고건수']], on=['사고연도', '자치구명'], how='inner', suffixes=('_TAAS', '_상세'))
-assert (comp['고령보행자_사고건수_TAAS'] == comp['고령보행자_사고건수_상세']).all(), '기존 상세 사고건수와 TAAS 집계 불일치'
-e22_24 = e22_24.merge(dg.drop(columns='고령보행자_사고건수'), on=['사고연도', '자치구명'], how='left', validate='one_to_one')
+# TAAS 2022~2024년 전체 25개 자치구 사고·사망·부상 통계
+counts = pd.read_csv(RAW + '2022-2024_서울25개구_고령보행자사고.csv', encoding='utf-8-sig')
+e22_24 = pd.read_csv(RAW + '2022-2024_서울_사고사망부상.csv', encoding='utf-8-sig')
+keys = ['사고연도', '자치구명']
+assert len(e22_24) == 75 and not e22_24.duplicated(keys).any()
+assert e22_24.groupby('사고연도')['자치구명'].nunique().to_dict() == {2022: 25, 2023: 25, 2024: 25}
+check = counts.merge(e22_24[keys + ['고령보행자_사고건수']], on=keys,
+                     how='outer', indicator=True, suffixes=('_기존', '_신규'), validate='one_to_one')
+assert len(check) == 75 and (check['_merge'] == 'both').all()
+assert (check['고령보행자_사고건수_기존'] == check['고령보행자_사고건수_신규']).all(), '기존 75개 사고건수와 불일치'
+comp = e22_24.merge(dg[keys + ['고령보행자_사고건수']], on=keys,
+                    how='inner', suffixes=('_TAAS', '_상세'))
+assert (comp['고령보행자_사고건수_TAAS'] == comp['고령보행자_사고건수_상세']).all(), '상세 사고건수와 불일치'
 e22_24['고령보행자_출처'] = 'TAAS 시군구통계'
 panel = panel.merge(pd.concat([e25, e22_24], ignore_index=True), on=['사고연도', '자치구명'], how='left', validate='one_to_one').merge(stat('2025_전체보행자사고.xlsx', '전체보행자_'), on=['사고연도', '자치구명'], how='left')
 
