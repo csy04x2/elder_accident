@@ -19,7 +19,11 @@ def pt_seg(Pt, R):
 def crosses(R1, R2):
     a, b, c, d = R1[:-1][:, None], R1[1:][:, None], R2[:-1][None], R2[1:][None]
     o = lambda p, q, r: (q[..., 0] - p[..., 0]) * (r[..., 1] - p[..., 1]) - (q[..., 1] - p[..., 1]) * (r[..., 0] - p[..., 0])
-    return bool(((o(a, b, c) * o(a, b, d) <= 0) & (o(c, d, a) * o(c, d, b) <= 0)).any())
+    # 방향 판정과 선분 bounding box를 함께 확인 (일직선상 분리된 선분 제외)
+    same_side = (o(a, b, c) * o(a, b, d) <= 0) & (o(c, d, a) * o(c, d, b) <= 0)
+    x_overlap = np.maximum(np.minimum(a[..., 0], b[..., 0]), np.minimum(c[..., 0], d[..., 0])) <= np.minimum(np.maximum(a[..., 0], b[..., 0]), np.maximum(c[..., 0], d[..., 0]))
+    y_overlap = np.maximum(np.minimum(a[..., 1], b[..., 1]), np.minimum(c[..., 1], d[..., 1])) <= np.minimum(np.maximum(a[..., 1], b[..., 1]), np.maximum(c[..., 1], d[..., 1]))
+    return bool((same_side & x_overlap & y_overlap).any())
 def dist(H, Zs):
     best = np.inf
     for Z in Zs:

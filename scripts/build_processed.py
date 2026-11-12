@@ -143,7 +143,11 @@ def pt_seg(P, R):                                                      # 점들 
 def crosses(R1, R2):
     a, b, c, d = R1[:-1][:, None], R1[1:][:, None], R2[:-1][None], R2[1:][None]
     o = lambda p, q, r: (q[..., 0] - p[..., 0]) * (r[..., 1] - p[..., 1]) - (q[..., 1] - p[..., 1]) * (r[..., 0] - p[..., 0])
-    return bool(((o(a, b, c) * o(a, b, d) <= 0) & (o(c, d, a) * o(c, d, b) <= 0)).any())
+    # 방향 판정과 선분 bounding box를 함께 확인 (일직선상 분리된 선분 제외)
+    same_side = (o(a, b, c) * o(a, b, d) <= 0) & (o(c, d, a) * o(c, d, b) <= 0)
+    x_overlap = np.maximum(np.minimum(a[..., 0], b[..., 0]), np.minimum(c[..., 0], d[..., 0])) <= np.minimum(np.maximum(a[..., 0], b[..., 0]), np.maximum(c[..., 0], d[..., 0]))
+    y_overlap = np.maximum(np.minimum(a[..., 1], b[..., 1]), np.minimum(c[..., 1], d[..., 1])) <= np.minimum(np.maximum(a[..., 1], b[..., 1]), np.maximum(c[..., 1], d[..., 1]))
+    return bool((same_side & x_overlap & y_overlap).any())
 def pair(H, Zs):                                                       # 다발지역 외곽링 H ↔ 보호구역 폴리곤들 → (거리, 중첩)
     best = np.inf
     for Z in Zs:
@@ -191,11 +195,16 @@ e25 = stat('2025_고령보행자사고.xlsx', '고령보행자_').assign(고령�
 dg = det.groupby(['사고연도', '자치구명']).agg(고령보행자_사고건수=('구분번호', 'size'), 고령보행자_사망자수=('사망자수', 'sum'), 고령보행자_부상자수=('부상자수', 'sum')).reset_index()
 dg = dg[dg['사고연도'] < 2025].assign(고령보행자_출처='TAAS 사고상세 집계')
 panel = panel.merge(pd.concat([e25, dg]), on=['사고연도', '자치구명'], how='left').merge(stat('2025_전체보행자사고.xlsx', '전체보행자_'), on=['사고연도', '자치구명'], how='left')
-lv = pd.read_csv(RAW + '2025_서울_자치구별_내국인생활인구.csv')
-lv['고령'] = lv[['male_f65t69_lvpop_co', 'male_f70t74_lvpop_co', 'female_f65t69_lvpop_co', 'female_f70t74_lvpop_co']].sum(axis=1)
-lvg = lv.groupby('adstrd_code_se')['고령'].mean().round(2).rename('고령생활인구_연평균').reset_index().assign(사고연도=2025)
-lvg['자치구명'] = lvg['adstrd_code_se'].map(GU_R)
-panel = panel.merge(lvg.drop(columns='adstrd_code_se'), on=['사고연도', '자치구명'], how='left')
+
+# 2025년 65세 이상 생활인구 (남녀 65~69세 + 70세 이상)
+lv = pd.read_csv(RAW + '250_LOCAL_RESD_GU_2025.csv', encoding='cp949')
+age_cols = ['남자 65~69세', '남자 70세 이상', '여자 65~69세', '여자 70세 이상']
+lv['고령'] = lv[age_cols].sum(axis=1)
+lvg = lv.groupby('자치구코드')['고령'].mean().round(2).rename('고령생활인구_연평균').reset_index().assign(사고연도=2025)
+lvg['자치구명'] = lvg['자치구코드'].map(GU_R)
+assert lvg['자치구명'].notna().all(), '생활인구 자치구코드 매칭 오류'
+panel = panel.merge(lvg.drop(columns='자치구코드'), on=['사고연도', '자치구명'], how='left')
+
 zl = pd.concat([zm[zm[f'명단{y}'] == 1].groupby('자치구명').size().rename('보호구역_명단시설수').reset_index().assign(사고연도=y) for y in YEARS])
 hg = hs.groupby(['사고연도', '자치구명']).agg(다발지역_수=('다발지역FID', 'size'), 다발지역_사고건수=('사고건수', 'sum')).reset_index()
 lg = lk.groupby(['사고연도', '자치구명'])['경계중첩'].sum().rename('다발지역_보호구역중첩수').reset_index()
