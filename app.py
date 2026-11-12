@@ -13,6 +13,7 @@ from streamlit_folium import st_folium
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data" / "processed"
+BOUNDARY = DATA / "08_서울_자치구_경계.geojson"
 FILES = {
     "panel": "01_자치구연도_패널.csv",
     "hotspots": "03_다발지역_서울.csv",
@@ -206,12 +207,50 @@ def wkt_geojson(wkt):
     return mapping(shapely_wkt.loads(wkt))
 
 
-def plot_map(hs, zones, links):
+@st.cache_data(show_spinner=False)
+def load_boundaries(mtime: float) -> dict:
+    """자치구·서울 외곽선. {이름: [[경도, 위도], ...]} (출처: 통계청 SGIS, 가공 vuski/admdongkor, CC BY 4.0)"""
+    with open(BOUNDARY, encoding="utf-8") as fh:
+        return {f["properties"]["자치구명"]: f["geometry"]["coordinates"][0] for f in json.load(fh)["features"]}
+
+
+def boundaries():
+    """경계 파일이 없으면 빈 dict — 지도는 가림막 없이 그대로 나온다."""
+    try:
+        return load_boundaries(BOUNDARY.stat().st_mtime)
+    except (OSError, KeyError, ValueError):
+        return {}
+
+
+def add_seoul_frame(m, focus):
+    """서울 바깥을 단색으로 가리고, 서울·자치구 외곽선을 그린 뒤 선택 범위에 화면을 맞춘다."""
+    rings = boundaries()
+    seoul = rings.get("서울 전체")
+    if not seoul:
+        return
+    world = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]
+    folium.GeoJson({"type": "Polygon", "coordinates": [world, seoul]}, control=False,
+                   style_function=lambda feature: {"stroke": False, "fillColor": GROUND, "fillOpacity": 1}).add_to(m)
+    districts = {"type": "MultiLineString", "coordinates": [r for name, r in rings.items() if name != "서울 전체"]}
+    folium.GeoJson(districts, control=False,
+                   style_function=lambda feature: {"color": "#667085", "weight": 1, "opacity": 0.7, "fill": False}).add_to(m)
+    folium.GeoJson({"type": "LineString", "coordinates": seoul}, control=False,
+                   style_function=lambda feature: {"color": NAVY, "weight": 2.5, "fill": False}).add_to(m)
+    target = rings.get(focus, seoul)
+    if focus in rings and focus != "서울 전체":
+        folium.GeoJson({"type": "LineString", "coordinates": target}, control=False,
+                       style_function=lambda feature: {"color": NAVY, "weight": 4, "fill": False}).add_to(m)
+    lons, lats = [c[0] for c in target], [c[1] for c in target]
+    m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+
+
+def plot_map(hs, zones, links, focus="서울 전체"):
     joined = hs.merge(links[["다발지역FID", "경계중첩", "최단거리_m"]], on="다발지역FID", how="left", validate="one_to_one")
     centers = joined[["위도", "경도"]].apply(pd.to_numeric, errors="coerce").dropna()
     lat, lon = (centers["위도"].mean(), centers["경도"].mean()) if len(centers) else (37.5665, 126.9780)
-    m = folium.Map(location=[lat, lon], zoom_start=12 if len(centers) else 11, tiles="OpenStreetMap")
+    m = folium.Map(location=[lat, lon], zoom_start=12 if len(centers) else 11, tiles="OpenStreetMap", min_zoom=10)
     Fullscreen().add_to(m)
+    add_seoul_frame(m, focus)
     z_layer = folium.FeatureGroup(name=f"보호구역 API 경계 ({len(zones)}건)", show=True)
     h_layer = folium.FeatureGroup(name=f"사고다발지역 ({len(joined)}곳)", show=True)
     for _, row in zones.iterrows():
@@ -434,7 +473,7 @@ elif page == "지역별 사고 현황":
 
 # ── 03 공간 분석 지도 ─────────────────────────────────────────────────
 elif page == "공간 분석 지도":
-    view, joined = plot_map(h, z, links)
+    view, joined = plot_map(h, z, links, gu)
     known = joined["경계중첩"].notna()
     overlapping = int((joined.loc[known, "경계중첩"] == 1).sum())
     outside = int((joined.loc[known, "경계중첩"] == 0).sum())
@@ -454,14 +493,13 @@ elif page == "공간 분석 지도":
     if year <= 2020:
         st.warning("2020년 이전 사고다발지역은 이후와 선정 기준이 달라 연도 간 직접 비교에 주의해야 합니다.")
 
-    map_col, list_col = st.columns([3, 2], gap="medium")
-    with map_col, st.container(border=True):
+    with st.container(border=True):
         html(f'<div class="ea-legend"><span><i style="background:{BLUE_SOFT};border:2px solid {BLUE};border-radius:3px"></i>노인보호구역 경계</span>'
              f'<span><i style="background:{BLUE_DARK};border-radius:50%"></i>겹치는 사고다발지역</span>'
              f'<span><i style="background:{ORANGE_SOFT};border:2px solid {ORANGE_DARK};border-radius:50%"></i>보호구역 밖 사고다발지역</span></div>')
-        st_folium(view, width=None, height=540, returned_objects=[])
-        source("영역을 누르면 집계 사고 건수와 가장 가까운 보호구역까지의 거리가 나옵니다.")
-    with list_col, st.container(border=True):
+        st_folium(view, width=None, height=640, returned_objects=[])
+        source("영역을 누르면 집계 사고 건수와 가장 가까운 보호구역까지의 거리가 나옵니다. 행정경계: 통계청 SGIS, 가공 vuski/admdongkor (CC BY 4.0)")
+    with st.container(border=True):
         card_title("사고다발지역 목록", "집계 사고 건수와 가장 가까운 보호구역까지 직선거리")
         if joined.empty:
             st.info("표시할 사고다발지역이 없습니다. 개별 사고가 없었다는 뜻은 아닙니다.")
@@ -475,8 +513,8 @@ elif page == "공간 분석 지도":
                     where = '<span class="ea-pill">겹침</span>'
                 else:
                     where = f'<span class="out">{float(r["최단거리_m"]):,.0f}m</span>'
-                place = escape(short_name(r) if gu != "서울 전체" else f"{r['자치구명']} {short_name(r)}")
-                rows.append(f'<tr><td>{place}</td><td class="r"><b>{num(r["사고건수"])}건</b></td><td class="r">{where}</td></tr>')
+                spot = escape(short_name(r) if gu != "서울 전체" else f"{r['자치구명']} {short_name(r)}")
+                rows.append(f'<tr><td>{spot}</td><td class="r"><b>{num(r["사고건수"])}건</b></td><td class="r">{where}</td></tr>')
             html('<table class="ea-table"><thead><tr><th scope="col">지점</th><th scope="col" class="r">사고</th>'
                  f'<th scope="col" class="r">보호구역</th></tr></thead><tbody>{"".join(rows)}</tbody></table>')
             if len(ordered) > 12:

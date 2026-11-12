@@ -21,3 +21,8 @@ python -m streamlit run app.py
 - 색은 두 가지 의미로만 씁니다. 파랑은 노인보호구역, 주황은 사고·사고다발지역입니다.
 - 기본 테마는 `.streamlit/config.toml`, 카드·사이드바 등 세부 스타일은 `app.py` 상단의 `CSS`에 있습니다.
 - 글꼴(IBM Plex Sans KR)은 Google Fonts에서 불러옵니다. 인터넷 연결이 없으면 시스템 글꼴로 표시됩니다.
+
+## 지도의 서울 경계
+
+- 지도는 서울 바깥을 단색으로 가리고 서울과 자치구 외곽선을 그립니다. 경계 파일은 `data/processed/08_서울_자치구_경계.geojson`이며, 없으면 가림막 없이 지도가 표시됩니다.
+- 본 데이터는 통계청 통계지리정보서비스(SGIS, https://sgis.kostat.go.kr)에서 공공누리 제1유형으로 개방한 행정동 경계를 가공한 것이며(가공: vuski/admdongkor, https://github.com/vuski/admdongkor), CC BY 4.0으로 배포됩니다. 2025년 12월 31일 기준 행정동 경계를 자치구·서울 외곽선으로 병합했습니다.
