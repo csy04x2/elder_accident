@@ -1,6 +1,7 @@
 """서울 고령 보행자 교통사고 탐색 대시보드 (기존 processed CSV 전용)."""
 from pathlib import Path
 import json
+from math import ceil, floor, log10
 from html import escape
 
 import folium
@@ -8,7 +9,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-import streamlit.components.v1 as components
 from folium.plugins import Fullscreen
 from streamlit_folium import st_folium
 
@@ -66,6 +66,13 @@ CSS = f"""
 /* 본문 */
 .ea-eyebrow {{ font-size: 13px; font-weight: 600; color: {MUTED}; }}
 .ea-title {{ margin: 8px 0 0 !important; padding: 0 !important; font-size: 32px !important; line-height: 1.3; font-weight: 700; letter-spacing: -.01em; color: {INK}; }}
+.ea-kpis {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 24px 0 8px; }}
+.ea-kpi {{ background: #FFFFFF; border: 1px solid {LINE}; border-radius: 12px; padding: 20px; }}
+.ea-kpi .l {{ font-size: 13px; font-weight: 600; color: {MUTED}; }}
+.ea-kpi .v {{ margin-top: 8px; font-size: 32px; font-weight: 700; line-height: 1.1; color: {INK}; }}
+.ea-kpi .v span {{ font-size: 16px; font-weight: 500; color: {MUTED}; }}
+.ea-kpi .d {{ margin-top: 8px; font-size: 13px; color: {MUTED}; }}
+.ea-kpi .d.up {{ color: #B93815; font-weight: 600; }}
 .ea-lead {{ margin: 10px 0 0; max-width: 820px; font-size: 16px; line-height: 1.6; color: #344054; }}
 .ea-h2 {{ margin: 0 !important; padding: 0 !important; font-size: 18px !important; line-height: 1.4 !important; font-weight: 700; color: {INK}; }}
 .ea-sub {{ margin-top: 4px; font-size: 13px; color: {MUTED}; }}
@@ -119,6 +126,17 @@ def html(text):
 def header(eyebrow, title, lead=None):
     lead_html = f'<p class="ea-lead">{escape(lead)}</p>' if lead else ""
     html(f'<div class="ea-eyebrow">{escape(eyebrow)}</div><h1 class="ea-title">{escape(title)}</h1>{lead_html}')
+
+
+def kpis(items):
+    """items: (라벨, 값, 단위, 보조문구, 증가강조 여부, 값 색상)"""
+    cards = []
+    for label, value, unit, detail, up, color in items:
+        unit_html = f"<span> {escape(unit)}</span>" if value != "자료 없음" else ""
+        style = f' style="color:{color}"' if color else ""
+        cards.append(f'<div class="ea-kpi"><div class="l">{escape(label)}</div><div class="v"{style}>{escape(value)}{unit_html}</div>'
+                     f'<div class="d{" up" if up else ""}">{escape(detail)}</div></div>')
+    html(f'<div class="ea-kpis">{"".join(cards)}</div>')
 
 
 def card_title(title, sub=None):
@@ -323,62 +341,78 @@ def plot_map(hs, zones, links, focus="서울 전체"):
 
 
 OVERVIEW_CSS = """
-:root{color-scheme:dark;--navy:#081323;--panel:#0e1e34;--line:#25405e;--white:#edf6ff;--muted:#a9bed5;--blue:#81cfff;--aqua:#8ceee6}
-*{box-sizing:border-box}
-body{margin:0;color:var(--white);background:radial-gradient(ellipse at 72% -15%,#1b4870 0%,transparent 54%),var(--navy);font-family:"Pretendard","Malgun Gothic",system-ui,sans-serif}
-header,main,footer{width:min(1184px,calc(100% - 64px));margin:auto}
-header{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:18px}
-.brand{font-size:15px;font-weight:750;display:flex;align-items:center;gap:12px}
-.logo{width:25px;height:25px;border:1px solid #5186b0;border-radius:7px;background:linear-gradient(125deg,transparent 48%,var(--blue) 49%,var(--blue) 54%,transparent 55%);position:relative}
-.logo:after{content:"";position:absolute;top:8px;left:8px;width:6px;height:6px;background:var(--aqua);border-radius:100%;box-shadow:0 0 10px var(--aqua)}
-.period{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
-.hero{position:relative;isolation:isolate;padding:51px 0 31px;overflow:hidden}
-.hero svg{position:absolute;z-index:-1;right:-35px;bottom:-19px;width:min(55%,630px);opacity:.62;pointer-events:none}
-.eyebrow{color:var(--blue);font-size:13px;font-weight:700;margin:0 0 12px}
-h1{font-size:clamp(30px,5vw,60px);letter-spacing:-.065em;line-height:1.13;margin:0}
-.lede{font-size:clamp(16px,2.25vw,22px);margin:13px 0 0;color:#c5d9ee;letter-spacing:-.025em}
-.lede strong{color:var(--aqua)}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.metric{min-width:0;border:1px solid #30516c;border-radius:12px;padding:16px 17px 14px;background:radial-gradient(circle at 90% 0%,#163652,transparent 80%),#0c1c30;animation:arrive .55s both;animation-delay:calc(var(--i)*125ms)}
-.metric h2{font-size:13px;line-height:1.35;margin:0 0 11px;color:#d5e8f8}
-.display{padding:5px 9px 6px;background:radial-gradient(circle,#5ba1cd2b .7px,transparent 1.2px) 0 0/5px 5px,#07121e;border:1px solid #233f54;border-radius:6px;white-space:nowrap}
-.number{font:700 clamp(27px,4vw,48px)/1.1 "Courier New",monospace;letter-spacing:-.08em;color:var(--aqua);text-shadow:0 0 14px #62ffe875;font-variant-numeric:tabular-nums}
-.unit{font-size:13px;margin-left:8px;color:#c8e6ef}
-.metric p{margin:9px 0 0;font-size:12px;color:var(--muted)}
-.controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin:10px 0 19px}
-button{font:inherit;color:#d9efff;background:#132943;border:1px solid #395875;border-radius:6px;padding:4px 9px;cursor:pointer}
-button:focus-visible{outline:2px solid var(--aqua);outline-offset:3px}
-.scan{animation:scan .65s ease-out}
-.charts{display:grid;grid-template-columns:1.07fr 1fr;gap:14px}
-.panel{background:linear-gradient(155deg,#122641,#0b192b 85%);border:1px solid var(--line);border-radius:15px;padding:19px 20px 16px;min-width:0}
-.panel h2{font-size:20px;letter-spacing:-.045em;margin:0}
-.sub,.note{color:var(--muted);font-size:12px;line-height:1.55;margin:5px 0 0}
-.chart{display:block;width:100%;height:auto;margin:5px 0}
-.chart text{fill:#b9cee4;font-size:13px;font-family:inherit}
-.chart .value{fill:#e6f5ff;font-weight:750;font-size:15px}
-.grid{stroke:#2b425b;stroke-dasharray:4 5}
-.trend{stroke:#83d7ff;stroke-width:3.6;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 2s .38s ease-out forwards}
-.point{animation:arrive .35s both;animation-delay:var(--delay)}
-.note strong{color:#d7edff}
-footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.65;margin-top:19px;padding:11px 0 20px}
+.ea-overview{--navy:#081323;--panel:#0e1e34;--line:#25405e;--white:#edf6ff;--muted:#a9bed5;--blue:#81cfff;--aqua:#8ceee6}
+.ea-overview *{box-sizing:border-box}
+[data-testid="stMain"]:has(.ea-overview) {
+  background: radial-gradient(ellipse at 72% 0%, #1b4870 0%, transparent 54%), #081323;
+}
+[data-testid="stMain"]:has(.ea-overview) .block-container {
+  max-width: none;
+  padding: 3.5rem clamp(16px, 3vw, 52px) 1rem;
+}
+[data-testid="stHeader"]:has(~ [data-testid="stMain"] .ea-overview),
+[data-testid="stAppViewContainer"]:has(.ea-overview) [data-testid="stHeader"] {
+  background: transparent;
+  color: #edf6ff;
+}
+.ea-overview { container-type: inline-size; color: var(--white); font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
+.ea-overview h1 { color: var(--white); padding: 0; }
+.ea-overview h2 { padding: 0; }
+.ea-overview .chart { max-height: 330px; }
+.ea-overview header{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:18px}
+.ea-overview .brand{font-size:15px;font-weight:750;display:flex;align-items:center;gap:12px}
+.ea-overview .logo{width:25px;height:25px;border:1px solid #5186b0;border-radius:7px;background:linear-gradient(125deg,transparent 48%,var(--blue) 49%,var(--blue) 54%,transparent 55%);position:relative}
+.ea-overview .logo:after{content:"";position:absolute;top:8px;left:8px;width:6px;height:6px;background:var(--aqua);border-radius:100%;box-shadow:0 0 10px var(--aqua)}
+.ea-overview .period{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ea-overview .hero{position:relative;isolation:isolate;padding:51px 0 31px;overflow:hidden}
+.ea-overview .hero svg{position:absolute;z-index:-1;right:-35px;bottom:-19px;width:min(55%,630px);opacity:.62;pointer-events:none}
+.ea-overview .eyebrow{color:var(--blue);font-size:13px;font-weight:700;margin:0 0 12px}
+.ea-overview h1{font-size:clamp(30px,5vw,60px);letter-spacing:-.065em;line-height:1.13;margin:0}
+.ea-overview .lede{font-size:clamp(16px,2.25vw,22px);margin:13px 0 0;color:#c5d9ee;letter-spacing:-.025em}
+.ea-overview .lede strong{color:var(--aqua)}
+.ea-overview .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ea-overview .metric{min-width:0;border:1px solid #30516c;border-radius:12px;padding:16px 17px 14px;background:radial-gradient(circle at 90% 0%,#163652,transparent 80%),#0c1c30;animation:arrive .55s both;animation-delay:calc(var(--i)*125ms)}
+.ea-overview .metric h2{font-size:13px;line-height:1.35;margin:0 0 11px;color:#d5e8f8}
+.ea-overview .display{padding:5px 9px 6px;background:radial-gradient(circle,#5ba1cd2b .7px,transparent 1.2px) 0 0/5px 5px,#07121e;border:1px solid #233f54;border-radius:6px;white-space:nowrap}
+.ea-overview .number{font:700 clamp(27px,4vw,48px)/1.1 "Courier New",monospace;letter-spacing:-.08em;color:var(--aqua);text-shadow:0 0 14px #62ffe875;font-variant-numeric:tabular-nums}
+.ea-overview .unit{font-size:13px;margin-left:8px;color:#c8e6ef}
+.ea-overview .metric p{margin:9px 0 0;font-size:12px;color:var(--muted)}
+.ea-overview .controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin:10px 0 19px}
+.ea-overview button{font:inherit;color:#d9efff;background:#132943;border:1px solid #395875;border-radius:6px;padding:4px 9px;cursor:pointer}
+.ea-overview button:focus-visible{outline:2px solid var(--aqua);outline-offset:3px}
+.ea-overview .scan{animation:scan .65s ease-out}
+.ea-overview .charts{display:grid;grid-template-columns:1.07fr 1fr;gap:14px}
+.ea-overview .panel{background:linear-gradient(155deg,#122641,#0b192b 85%);border:1px solid var(--line);border-radius:15px;padding:19px 20px 16px;min-width:0}
+.ea-overview .panel h2{font-size:20px;letter-spacing:-.045em;margin:0}
+.ea-overview .sub,.ea-overview .note{color:var(--muted);font-size:12px;line-height:1.55;margin:5px 0 0}
+.ea-overview .chart{display:block;width:100%;height:auto;margin:5px 0}
+.ea-overview .chart text{fill:#b9cee4;font-size:13px;font-family:inherit}
+.ea-overview .chart .value{fill:#e6f5ff;font-weight:750;font-size:15px}
+.ea-overview .grid{stroke:#2b425b;stroke-dasharray:4 5}
+.ea-overview .trend{stroke:#83d7ff;stroke-width:3.6;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 2s .38s ease-out forwards}
+.ea-overview .point{animation:arrive .35s both;animation-delay:var(--delay)}
+.ea-overview .note strong{color:#d7edff}
+.ea-overview footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.65;margin-top:19px;padding:11px 0 20px}
 @keyframes arrive{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
 @keyframes draw{to{stroke-dashoffset:0}}
 @keyframes scan{25%{box-shadow:inset 0 0 16px #6fffe449}100%{box-shadow:none}}
-@media(max-width:780px){header,main,footer{width:calc(100% - 34px)}.charts{grid-template-columns:1fr}.hero{padding-top:32px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.number{font-size:37px}}
-@media(max-width:360px){.metric{padding:10px}.panel{padding:12px}.brand{font-size:12px}}
-@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:0s!important;animation-delay:0s!important}.trend{stroke-dashoffset:0}}
+@container (max-width:780px){.ea-overview .charts{grid-template-columns:1fr}.ea-overview .hero{padding-top:32px}.ea-overview .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ea-overview .number{font-size:37px}}
+@container (max-width:360px){.ea-overview .metric{padding:10px}.ea-overview .panel{padding:12px}.ea-overview .brand{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.ea-overview *,.ea-overview *:before,.ea-overview *:after{animation-duration:0s!important;animation-delay:0s!important}.ea-overview .trend{stroke-dashoffset:0}}
 
-body { border-radius: 16px; }
-header, main, footer { width: min(1184px, calc(100% - 40px)); }
-header { height: 58px; }
-.hero { padding-top: 34px; }
-.chart-empty { min-height: 160px; display: grid; align-items: center; color: var(--muted); }
+.ea-overview header { height: 58px; }
+.ea-overview .hero { padding-top: 34px; }
+.ea-overview .chart-empty { min-height: 160px; display: grid; align-items: center; color: var(--muted); }
 """
 OVERVIEW_SCRIPT = """
-const numbers = [...document.querySelectorAll('.number')];
+(() => {
+const report = document.querySelector('.ea-overview');
+if (!report || report.dataset.animated) return;
+report.dataset.animated = 'true';
+const numbers = [...report.querySelectorAll('.number')];
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const format = new Intl.NumberFormat('ko-KR');
-const toggle = document.querySelector('#toggle');
+const toggle = report.querySelector('#toggle');
 let timer;
 
 function animateNumbers() {
@@ -397,6 +431,10 @@ function animateNumbers() {
 }
 
 function refreshDisplay() {
+  if (!report.isConnected) {
+    clearInterval(timer);
+    return;
+  }
   if (document.hidden || reducedMotion.matches) return;
   for (const number of numbers) {
     number.parentElement.animate(
@@ -413,13 +451,10 @@ function setRefresh(enabled) {
 }
 
 toggle.addEventListener('click', () => setRefresh(!timer));
-reducedMotion.addEventListener('change', () => {
-  toggle.hidden = reducedMotion.matches;
-  setRefresh(!reducedMotion.matches);
-});
 toggle.hidden = reducedMotion.matches;
 animateNumbers();
 setRefresh(!reducedMotion.matches);
+})();
 """
 OVERVIEW_FLOW = """
   <svg viewBox="0 0 640 205" aria-hidden="true">
@@ -456,7 +491,9 @@ def overview_trend(trend):
 
     records = list(trend.itertuples(index=False, name=None))
     maximum = max(value for _, value in records)
-    step = max(1, int(-(-maximum // 400)))
+    target = max(1, maximum / 4)
+    magnitude = 10 ** floor(log10(target))
+    step = ceil(target / magnitude) * magnitude
     ceiling = step * 4
     ticks = []
     for index in range(5):
@@ -525,15 +562,12 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
         )
         distance = f'<p class="chart-empty">{message}</p>'
 
-    components.html(
-        f"""<!doctype html>
-<html lang="ko">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>고령 보행자 교통안전 개요</title><style>{OVERVIEW_CSS}</style></head>
-<body>
+    st.html(
+        f"""<style>{OVERVIEW_CSS}</style>
+<div class="ea-overview" lang="ko">
 <header><div class="brand"><span class="logo" aria-hidden="true"></span> 서울 보행안전 리포트</div>
 <span class="period">{year}년 · 사고 발생 지역 기준</span></header>
-<main>
+<div>
 <section class="hero" aria-labelledby="headline">{OVERVIEW_FLOW}
 <p class="eyebrow">개요 · {escape(scope)}</p>
 <h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
@@ -549,13 +583,11 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
 <p class="sub">가장 가까운 확보 보호구역 경계까지 직선거리 · 거리 자료 {sum(counts)}곳</p>
 {distance}
 <p class="note"><strong>점은 거리 구간별 집계</strong> · 확보한 보호구역 경계 기준 잠정값</p></article>
-</section></main>
+</section></div>
 <footer>자료 · 한국도로교통공단 TAAS, 서울시 지정 명단, 팀 공간 분석<br>
 사고다발지역은 공단이 선정한 영역입니다. 일부 지정 시설의 경계 자료가 빠져 있으며, 확보한 경계가 지정 당시 범위와 다를 수 있습니다.</footer>
-<script>{OVERVIEW_SCRIPT}</script>
-</body></html>""",
-        height=720,
-        scrolling=True,
+</div><script>{OVERVIEW_SCRIPT}</script>""",
+        unsafe_allow_javascript=True,
     )
 
 
@@ -769,5 +801,6 @@ else:
          "명단에 새로 등장한 연도는 실제 지정 고시일과 다를 수 있고, 지정 당시의 경계도 확인되지 않았습니다. "
          "지정 효과는 개별 사고 자료와 정보공개청구 결과를 확보한 뒤에 판단할 수 있습니다.")
 
-st.divider()
-st.caption("데이터 출처와 처리 기준: 저장소 README.md · 데이터사전.md · data/processed/ | 관측된 공간 관계와 사고 감소의 인과효과는 다릅니다.")
+if page != "개요":
+    st.divider()
+    st.caption("데이터 출처와 처리 기준: 저장소 README.md · 데이터사전.md · data/processed/ | 관측된 공간 관계와 사고 감소의 인과효과는 다릅니다.")
