@@ -1,6 +1,8 @@
 """서울 고령 보행자 교통사고 탐색 대시보드 (기존 processed CSV 전용)."""
 from pathlib import Path
 import json
+from base64 import b64encode
+from math import ceil, floor, log10
 from html import escape
 
 import folium
@@ -65,7 +67,6 @@ CSS = f"""
 /* 본문 */
 .ea-eyebrow {{ font-size: 13px; font-weight: 600; color: {MUTED}; }}
 .ea-title {{ margin: 8px 0 0 !important; padding: 0 !important; font-size: 32px !important; line-height: 1.3; font-weight: 700; letter-spacing: -.01em; color: {INK}; }}
-.ea-lead {{ margin: 10px 0 0; max-width: 820px; font-size: 16px; line-height: 1.6; color: #344054; }}
 .ea-kpis {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 24px 0 8px; }}
 .ea-kpi {{ background: #FFFFFF; border: 1px solid {LINE}; border-radius: 12px; padding: 20px; }}
 .ea-kpi .l {{ font-size: 13px; font-weight: 600; color: {MUTED}; }}
@@ -73,6 +74,7 @@ CSS = f"""
 .ea-kpi .v span {{ font-size: 16px; font-weight: 500; color: {MUTED}; }}
 .ea-kpi .d {{ margin-top: 8px; font-size: 13px; color: {MUTED}; }}
 .ea-kpi .d.up {{ color: #B93815; font-weight: 600; }}
+.ea-lead {{ margin: 10px 0 0; max-width: 820px; font-size: 16px; line-height: 1.6; color: #344054; }}
 .ea-h2 {{ margin: 0 !important; padding: 0 !important; font-size: 18px !important; line-height: 1.4 !important; font-weight: 700; color: {INK}; }}
 .ea-sub {{ margin-top: 4px; font-size: 13px; color: {MUTED}; }}
 .ea-src {{ font-size: 12px; color: {MUTED}; }}
@@ -82,12 +84,6 @@ CSS = f"""
 .ea-legend {{ display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: #344054; }}
 .ea-legend span {{ display: inline-flex; align-items: center; gap: 8px; }}
 .ea-legend i {{ display: inline-block; width: 14px; height: 14px; box-sizing: border-box; }}
-.ea-bands {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 4px; }}
-.ea-bands .k {{ display: flex; align-items: center; gap: 8px; font-size: 13px; color: #344054; }}
-.ea-bands .k i {{ display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid #C9D1DC; box-sizing: border-box; }}
-.ea-bands .n {{ font-size: 22px; font-weight: 700; color: {INK}; }}
-.ea-bands .n span {{ font-size: 14px; font-weight: 500; color: {MUTED}; }}
-.ea-bar {{ display: flex; gap: 2px; height: 36px; border-radius: 6px; overflow: hidden; margin: 14px 0; }}
 .ea-table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
 .ea-table th {{ padding: 8px; font-size: 12px; font-weight: 600; color: {MUTED}; border-bottom: 1px solid {LINE}; text-align: left; }}
 .ea-table td {{ padding: 10px 8px; border-bottom: 1px solid #EEF1F5; color: {INK}; }}
@@ -175,16 +171,55 @@ def style(fig, height=320):
     return fig
 
 
-def ranking_chart(df, metric, highlight, height):
-    """자치구 가로 막대. 한 가지 색만 쓰고 선택한 자치구만 진하게."""
-    d = df.sort_values(metric, ascending=True)
-    colors = [ORANGE_DARK if (highlight and g == highlight) else (ORANGE if not highlight else ORANGE_SOFT) for g in d["자치구명"]]
-    digits = 0 if metric == "고령보행자_사고건수" else 1
-    fig = go.Figure(go.Bar(x=d[metric], y=d["자치구명"], orientation="h", marker_color=colors,
-                           text=[f"{v:,.{digits}f}" for v in d[metric]], textposition="outside", cliponaxis=False,
-                           hovertemplate="%{y}: %{x:,." + str(digits) + "f}<extra></extra>"))
-    fig.update_xaxes(showticklabels=False, showgrid=False)
-    return style(fig, height)
+DISTRICT_METRICS = {
+    "65세 이상 거주인구": ("고령인구", "명", 0),
+    "고령 생활인구": ("고령생활인구_연평균", "명", 0),
+    "고령 보행자 사고 건수": ("고령보행자_사고건수", "건", 0),
+    "고령인구 1만 명당 사고 건수": ("고령인구1만명당_고령보행자사고", "건", 1),
+    "고령 보행 사망자": ("고령보행자_사망자수", "명", 0),
+    "노인보호구역": ("보호구역_명단시설수", "곳", 0),
+    "고령 보행자 사고다발지역": ("다발지역_수", "곳", 0),
+    "보호구역 경계와 겹치는 사고다발지역": ("다발지역_보호구역중첩수", "곳", 0),
+}
+
+
+def district_ranking(frame, label, focus):
+    column, unit, digits = DISTRICT_METRICS[label]
+    ranked = frame.assign(value=pd.to_numeric(frame[column], errors="coerce"))
+    ranked = ranked.sort_values(["value", "자치구명"], ascending=[False, True], na_position="last")
+    maximum = ranked["value"].max()
+    scale = maximum if pd.notna(maximum) and maximum > 0 else 1
+    rows = []
+    for district, value in ranked[["자치구명", "value"]].itertuples(index=False, name=None):
+        value_text = "자료 없음" if pd.isna(value) else f"{num(value, digits)}{unit}"
+        width = 0 if pd.isna(value) else value / scale * 100
+        accent = " district-highlight" if district in {"동대문구", "도봉구", focus} else ""
+        rows.append(
+            f'<tr class="{accent}"><th scope="row">{escape(district)}</th>'
+            f'<td class="district-value">{value_text}</td>'
+            f'<td class="district-track" aria-hidden="true"><div class="district-bar" style="width:{width:.4f}%"></div></td>'
+            f'<td class="district-end" aria-hidden="true">{value_text}</td></tr>'
+        )
+    html(
+        '<style>'
+        '.district-table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px}'
+        '.district-table th,.district-table td{border:0;padding:3px 5px;line-height:1.4}'
+        '.district-table thead th{font-size:12px;color:#475467;text-align:left;font-weight:500}'
+        '.district-table tbody th{text-align:left;font-weight:500;white-space:nowrap}'
+        '.district-table .district-value,.district-table .district-end{text-align:right;white-space:nowrap}'
+        '.district-table .district-value{color:#475467}'
+        '.district-table .district-bar{height:14px;border-radius:0 4px 4px 0;background:#9eb1c7;'
+        'transform-origin:left;animation:district-fill .65s ease-out both}'
+        '.district-table .district-highlight th,.district-table .district-highlight .district-end{font-weight:750}'
+        '.district-table .district-highlight .district-bar{background:#2467b2}'
+        '@keyframes district-fill{from{transform:scaleX(0)}to{transform:scaleX(1)}}'
+        '@media(prefers-reduced-motion:reduce){.district-table .district-bar{animation:none}}'
+        '</style>'
+        '<table class="district-table" aria-label="서울 자치구 지표 순위">'
+        '<colgroup><col style="width:64px"><col style="width:88px"><col><col style="width:88px"></colgroup>'
+        '<thead><tr><th scope="col">자치구</th><th scope="col" class="district-value">수치</th>'
+        f'<th scope="col" colspan="2">{escape(label)}</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
+    )
 
 
 def band_counts(link_rows):
@@ -305,6 +340,289 @@ def plot_map(hs, zones, links, focus="서울 전체"):
     return m, joined
 
 
+
+OVERVIEW_CSS = """
+.ea-overview{--navy:#081323;--panel:#0e1e34;--line:#25405e;--white:#edf6ff;--muted:#a9bed5;--blue:#81cfff;--aqua:#8ceee6}
+.ea-overview *{box-sizing:border-box}
+[data-testid="stMain"]:has(.ea-overview) {
+  background: radial-gradient(ellipse at 72% 0%, #1b4870 0%, transparent 54%), #081323;
+}
+[data-testid="stMain"]:has(.ea-overview) .block-container {
+  max-width: none;
+  padding: 3.5rem clamp(16px, 3vw, 52px) 1rem;
+}
+[data-testid="stHeader"]:has(~ [data-testid="stMain"] .ea-overview),
+[data-testid="stAppViewContainer"]:has(.ea-overview) [data-testid="stHeader"] {
+  background: transparent;
+  color: #edf6ff;
+}
+.ea-overview { container-type: inline-size; color: var(--white); font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif; }
+.ea-overview h1 { color: var(--white); padding: 0; }
+.ea-overview h2 { padding: 0; }
+.ea-overview .chart { max-height: 330px; }
+.ea-overview header{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:18px}
+.ea-overview .brand{font-size:15px;font-weight:750;display:flex;align-items:center;gap:12px}
+.ea-overview .logo{width:25px;height:25px;border:1px solid #5186b0;border-radius:7px;background:linear-gradient(125deg,transparent 48%,var(--blue) 49%,var(--blue) 54%,transparent 55%);position:relative}
+.ea-overview .logo:after{content:"";position:absolute;top:8px;left:8px;width:6px;height:6px;background:var(--aqua);border-radius:100%;box-shadow:0 0 10px var(--aqua)}
+.ea-overview .period{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ea-overview .hero{position:relative;isolation:isolate;padding:51px 0 31px;overflow:hidden}
+.ea-overview .hero svg{position:absolute;z-index:-1;right:-35px;bottom:-19px;width:min(55%,630px);opacity:.62;pointer-events:none}
+.ea-overview .eyebrow{color:var(--blue);font-size:13px;font-weight:700;margin:0 0 12px}
+.ea-overview h1{font-size:clamp(30px,5vw,60px);letter-spacing:-.065em;line-height:1.13;margin:0}
+.ea-overview .lede{font-size:clamp(16px,2.25vw,22px);margin:13px 0 0;color:#c5d9ee;letter-spacing:-.025em}
+.ea-overview .lede strong{color:var(--aqua)}
+.ea-overview .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ea-overview .metric{min-width:0;border:1px solid #30516c;border-radius:12px;padding:16px 17px 14px;background:radial-gradient(circle at 90% 0%,#163652,transparent 80%),#0c1c30;animation:arrive .55s both;animation-delay:calc(var(--i)*125ms)}
+.ea-overview .metric h2{font-size:13px;line-height:1.35;margin:0 0 11px;color:#d5e8f8}
+.ea-overview .display{padding:5px 9px 6px;background:radial-gradient(circle,#5ba1cd2b .7px,transparent 1.2px) 0 0/5px 5px,#07121e;border:1px solid #233f54;border-radius:6px;white-space:nowrap}
+.ea-overview .number{font:700 clamp(27px,4vw,48px)/1.1 "Courier New",monospace;letter-spacing:-.08em;color:var(--aqua);text-shadow:0 0 14px #62ffe875;font-variant-numeric:tabular-nums}
+.ea-overview .unit{font-size:13px;margin-left:8px;color:#c8e6ef}
+.ea-overview .metric p{margin:9px 0 0;font-size:12px;color:var(--muted)}
+.ea-overview .controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin:10px 0 19px}
+.ea-overview button{font:inherit;color:#d9efff;background:#132943;border:1px solid #395875;border-radius:6px;padding:4px 9px;cursor:pointer}
+.ea-overview button:focus-visible{outline:2px solid var(--aqua);outline-offset:3px}
+.ea-overview .scan{animation:scan .65s ease-out}
+.ea-overview .charts{display:grid;grid-template-columns:1.07fr 1fr;gap:14px}
+.ea-overview .panel{background:linear-gradient(155deg,#122641,#0b192b 85%);border:1px solid var(--line);border-radius:15px;padding:19px 20px 16px;min-width:0}
+.ea-overview .panel h2{font-size:20px;letter-spacing:-.045em;margin:0}
+.ea-overview .sub,.ea-overview .note{color:var(--muted);font-size:12px;line-height:1.55;margin:5px 0 0}
+.ea-overview .chart{display:block;width:100%;height:auto;margin:5px 0}
+.ea-overview .chart text{fill:#b9cee4;font-size:13px;font-family:inherit}
+.ea-overview .chart .value{fill:#e6f5ff;font-weight:750;font-size:15px}
+.ea-overview .grid{stroke:#2b425b;stroke-dasharray:4 5}
+.ea-overview .trend{stroke:#83d7ff;stroke-width:3.6;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 2s .38s ease-out forwards}
+.ea-overview .point{animation:arrive .35s both;animation-delay:var(--delay)}
+.ea-overview .note strong{color:#d7edff}
+.ea-overview footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.65;margin-top:19px;padding:11px 0 20px}
+@keyframes arrive{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes scan{25%{box-shadow:inset 0 0 16px #6fffe449}100%{box-shadow:none}}
+@container (max-width:780px){.ea-overview .charts{grid-template-columns:1fr}.ea-overview .hero{padding-top:32px}.ea-overview .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ea-overview .number{font-size:37px}}
+@container (max-width:360px){.ea-overview .metric{padding:10px}.ea-overview .panel{padding:12px}.ea-overview .brand{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.ea-overview *,.ea-overview *:before,.ea-overview *:after{animation-duration:0s!important;animation-delay:0s!important}.ea-overview .trend{stroke-dashoffset:0}}
+
+.ea-overview header { height: 58px; }
+.ea-overview .hero { padding-top: 34px; }
+.ea-overview .chart-empty { min-height: 160px; display: grid; align-items: center; color: var(--muted); }
+"""
+OVERVIEW_SCRIPT = """
+(() => {
+const report = document.querySelector('.ea-overview');
+if (!report || report.dataset.animated) return;
+report.dataset.animated = 'true';
+
+// Streamlit sanitizes inline SVG. Decode the server-generated artwork and mount it as SVG.
+for (const slot of report.querySelectorAll('[data-overview-svg]')) {
+  const bytes = Uint8Array.from(atob(slot.dataset.overviewSvg), character => character.charCodeAt(0));
+  const markup = new TextDecoder().decode(bytes);
+  const svg = new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement;
+  if (svg.namespaceURI === 'http://www.w3.org/2000/svg' && svg.localName === 'svg') {
+    slot.replaceWith(svg);
+  }
+}
+const numbers = [...report.querySelectorAll('.number')];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const format = new Intl.NumberFormat('ko-KR');
+const toggle = report.querySelector('#toggle');
+let timer;
+let frame;
+
+function showTotals() {
+  cancelAnimationFrame(frame);
+  for (const number of numbers) {
+    number.textContent = format.format(Number(number.dataset.value));
+  }
+}
+
+function animateNumbers() {
+  if (!report.isConnected) {
+    clearInterval(timer);
+    return;
+  }
+  if (document.hidden || reducedMotion.matches) return;
+  cancelAnimationFrame(frame);
+  const start = performance.now();
+  for (const number of numbers) number.textContent = '0';
+
+  function draw(now) {
+    let counting = false;
+    for (const [index, number] of numbers.entries()) {
+      const elapsed = now - start - index * 125;
+      const fraction = Math.max(0, Math.min(1, elapsed / 950));
+      const value = Number(number.dataset.value);
+      number.textContent = format.format(Math.round(value * (1 - (1 - fraction) ** 3)));
+      counting ||= fraction < 1;
+    }
+    if (counting) frame = requestAnimationFrame(draw);
+  }
+
+  frame = requestAnimationFrame(draw);
+}
+
+function setRefresh(enabled) {
+  clearInterval(timer);
+  timer = enabled ? setInterval(animateNumbers, 5000) : undefined;
+  if (!enabled) showTotals();
+  toggle.textContent = enabled ? '효과 일시정지' : '효과 재개';
+}
+
+toggle.addEventListener('click', () => {
+  const enabled = timer === undefined;
+  setRefresh(enabled);
+  if (enabled) animateNumbers();
+});
+toggle.hidden = reducedMotion.matches;
+animateNumbers();
+setRefresh(!reducedMotion.matches);
+})();
+"""
+OVERVIEW_FLOW = """
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 205" aria-hidden="true">
+    <defs><linearGradient id="flow"><stop stop-color="#70bffa" stop-opacity="0"/><stop offset="1" stop-color="#70bffa" stop-opacity=".66"/></linearGradient></defs>
+    <g fill="none" stroke="url(#flow)">
+      <path d="M0 178C180 176 200 117 331 102S478 119 640 13"/>
+      <path d="M0 185C180 183 200 124 331 109S478 126 640 22"/>
+      <path d="M0 193C180 191 200 132 331 117S478 134 640 31"/>
+      <path d="M0 202C180 200 200 141 331 126S478 143 640 42"/>
+    </g>
+    <circle cx="331" cy="102" r="3" fill="#86f1e5"/><circle cx="524" cy="78" r="3" fill="#86f1e5"/>
+  </svg>
+"""
+OVERVIEW_DISTANCE = """<svg xmlns="http://www.w3.org/2000/svg" class="chart" viewBox="0 0 480 211" role="img" aria-label="__DISTANCE_LABEL__">
+      <defs><linearGradient id="ruler"><stop stop-color="#8ceee6"/><stop offset="1" stop-color="#6fa1fb"/></linearGradient></defs>
+      <path d="M30 112H447l-8-5m8 5l-8 5" fill="none" stroke="url(#ruler)" stroke-width="2"/>
+      <path d="M30 104v16M100 104v16M240 104v16M380 104v16" stroke="#98b9da"/>
+      <g text-anchor="middle"><text x="30" y="139">0m</text><text x="100" y="139">100m</text><text x="240" y="139">300m</text><text x="380" y="139">500m</text></g>
+      <g text-anchor="middle">
+        <g class="point" style="--delay:.55s"><circle cx="30" cy="112" r="6" fill="#8ceee6"/><text class="value" x="30" y="88">__BAND_0__곳</text><text x="30" y="68">겹침</text></g>
+        <g class="point" style="--delay:.69s"><circle cx="65" cy="112" r="4" fill="#89dfff"/><text class="value" x="73" y="173">__BAND_1__곳</text><text x="73" y="192">100m 이내</text></g>
+        <g class="point" style="--delay:.83s"><circle cx="170" cy="112" r="5" fill="#89dfff"/><text class="value" x="170" y="88">__BAND_2__곳</text><text x="170" y="68">100–300m</text></g>
+        <g class="point" style="--delay:.97s"><circle cx="310" cy="112" r="5" fill="#8bb9ff"/><text class="value" x="310" y="88">__BAND_3__곳</text><text x="310" y="68">300–500m</text></g>
+        <g class="point" style="--delay:1.11s"><circle cx="421" cy="112" r="5" fill="#8bb9ff"/><text class="value" x="421" y="173">__BAND_4__곳</text><text x="421" y="192">500m 초과</text></g>
+      </g>
+    </svg>
+    """
+
+
+def overview_trend(trend):
+    """Draw from the first available year, using a zero-based scale."""
+    if trend.empty:
+        return '<p class="chart-empty">선택 범위에 연도별 사고 자료가 없습니다.</p>'
+
+    records = list(trend.itertuples(index=False, name=None))
+    maximum = max(value for _, value in records)
+    target = max(1, maximum / 4)
+    magnitude = 10 ** floor(log10(target))
+    step = ceil(target / magnitude) * magnitude
+    ceiling = step * 4
+    ticks = []
+    for index in range(5):
+        y = 180 - index * 34
+        ticks.append(
+            f'<path class="grid" d="M56 {y}H452"/>'
+            f'<text x="48" y="{y + 4}" text-anchor="end">{index * step:,}</text>'
+        )
+
+    coordinates = []
+    markers = []
+    labels = []
+    for index, (record_year, value) in enumerate(records):
+        x = 76 + 354 * index / max(len(records) - 1, 1)
+        y = 180 - value / ceiling * 136
+        coordinates.append(f"{x:.2f} {y:.2f}")
+        markers.append(
+            f'<g class="point" style="--delay:{.38 + index * 1.9 / max(len(records) - 1, 1):.2f}s">'
+            f'<circle cx="{x}" cy="{y}" r="4" fill="#8ceee6"/>'
+            f'<text class="value" x="{x}" y="{y - 12}">{value:,.0f}</text></g>'
+            f'<text x="{x}" y="201">{record_year:.0f}</text>'
+        )
+        labels.append(f"{record_year:.0f}년 {value:,.0f}건")
+
+    path = "M" + "L".join(coordinates)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" class="chart" viewBox="0 0 480 211" role="img" aria-label="{escape(", ".join(labels))}">'
+        f'{"".join(ticks)}<path class="trend" pathLength="1" d="{path}"/>'
+        f'<g text-anchor="middle">{"".join(markers)}</g></svg>'
+    )
+
+
+def overview_svg_slot(markup):
+    """Carry trusted, server-generated SVG through Streamlit's HTML sanitizer."""
+    encoded = b64encode(markup.strip().encode("utf-8")).decode("ascii")
+    return f'<div data-overview-svg="{encoded}"></div>'
+
+
+def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_total):
+    cards = []
+    for index, (label, value, unit, detail) in enumerate(metrics):
+        value_text = num(value)
+        if pd.isna(value):
+            value_html = '<span>자료 없음</span>'
+        else:
+            value_html = (
+                f'<span class="number" data-value="{int(value)}" aria-hidden="true">{value_text}</span>'
+                f'<span class="unit" aria-hidden="true">{escape(unit)}</span>'
+            )
+        accessible_value = value_text if pd.isna(value) else value_text + unit
+        cards.append(
+            f'<article class="metric" style="--i:{index}"><h2>{escape(label)}</h2>'
+            f'<div class="display" role="group" aria-label="{escape(accessible_value)}">{value_html}</div>'
+            f'<p>{escape(detail)}</p></article>'
+        )
+
+    summary = ""
+    if pd.notna(all_dead) and all_dead > 0 and pd.notna(dead):
+        summary = f'<p class="lede">보행 사망자 {num(all_dead)}명 중 <strong>65세 이상 {num(dead)}명</strong></p>'
+
+    if sum(counts):
+        distance = OVERVIEW_DISTANCE.replace(
+            "__DISTANCE_LABEL__",
+            escape(", ".join(f"{label} {count}곳" for (label, _), count in zip(BANDS, counts))),
+        )
+        for index, count in enumerate(counts):
+            distance = distance.replace(f"__BAND_{index}__", str(count))
+    else:
+        message = (
+            "선택 범위의 보호구역 경계 거리 자료가 없습니다."
+            if hotspot_total else "선택 범위에 선정된 사고다발지역이 없습니다."
+        )
+        distance = f'<p class="chart-empty">{message}</p>'
+
+    trend_chart = overview_trend(trend)
+    if not trend.empty:
+        trend_chart = overview_svg_slot(trend_chart)
+    if sum(counts):
+        distance = overview_svg_slot(distance)
+
+    st.html(
+        f"""<style>{OVERVIEW_CSS}</style>
+<div class="ea-overview" lang="ko">
+<header><div class="brand"><span class="logo" aria-hidden="true"></span> 서울 보행안전 리포트</div>
+<span class="period">{year}년 · 사고 발생 지역 기준</span></header>
+<div>
+<section class="hero" aria-labelledby="headline">{overview_svg_slot(OVERVIEW_FLOW)}
+<p class="eyebrow">개요 · {escape(scope)}</p>
+<h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
+<section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
+<div class="controls"><span>{year}년 집계 · 5초 간격 숫자 다시 세기</span>
+<button id="toggle" type="button">효과 일시정지</button></div>
+<section class="charts" aria-label="사고 추이와 보호구역 거리">
+<article class="panel"><h2>고령 보행자 사고 추이</h2>
+<p class="sub">사고 건수 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
+{trend_chart}
+<p class="note">한국도로교통공단 TAAS · 사고 발생 지역 기준</p></article>
+<article class="panel"><h2>사고다발지역과 보호구역 거리</h2>
+<p class="sub">가장 가까운 확보 보호구역 경계까지 직선거리 · 거리 자료 {sum(counts)}곳</p>
+{distance}
+<p class="note"><strong>점은 거리 구간별 집계</strong> · 확보한 보호구역 경계 기준 잠정값</p></article>
+</section></div>
+<footer>자료 · 한국도로교통공단 TAAS, 서울시 지정 명단, 팀 공간 분석<br>
+사고다발지역은 공단이 선정한 영역입니다. 일부 지정 시설의 경계 자료가 빠져 있으며, 확보한 경계가 지정 당시 범위와 다를 수 있습니다.</footer>
+</div><script>{OVERVIEW_SCRIPT}</script>""",
+        unsafe_allow_javascript=True,
+    )
+
+
 # ── 공통 필터 ─────────────────────────────────────────────────────────
 panel = load("panel")
 hotspots = load("hotspots")
@@ -344,106 +662,38 @@ z = in_scope(zones).copy()
 
 # ── 01 개요 ───────────────────────────────────────────────────────────
 if page == "개요":
-    acc, dead = total(p, "고령보행자_사고건수"), total(p, "고령보행자_사망자수")
-    all_acc, all_dead = total(p, "전체보행자_사고건수"), total(p, "전체보행자_사망자수")
-    elderly, people = total(p, "고령인구"), total(p, "총인구")
-    rate = acc / elderly * 10000 if pd.notna(acc) and pd.notna(elderly) and elderly > 0 else float("nan")
-    prev_acc, prev_dead, prev_elderly = total(prev, "고령보행자_사고건수"), total(prev, "고령보행자_사망자수"), total(prev, "고령인구")
-    prev_rate = prev_acc / prev_elderly * 10000 if pd.notna(prev_acc) and pd.notna(prev_elderly) and prev_elderly > 0 else float("nan")
+    acc = total(p, "고령보행자_사고건수")
+    dead = total(p, "고령보행자_사망자수")
+    all_dead = total(p, "전체보행자_사망자수")
+    prev_acc = total(prev, "고령보행자_사고건수")
+    prev_dead = total(prev, "고령보행자_사망자수")
     facilities = total(p, "보호구역_명단시설수")
-
-    if pd.notna(all_dead) and all_dead > 0 and pd.notna(dead):
-        title = f"보행 사망자 {all_dead:,.0f}명 중 {dead:,.0f}명이 65세 이상입니다"
-    elif pd.notna(acc):
-        title = f"{year}년 고령 보행자 사고는 {acc:,.0f}건입니다"
-    else:
-        title = "선택한 범위에 사고 자료가 없습니다"
-    lead = None
-    if pd.notna(people) and people > 0 and pd.notna(all_acc) and all_acc > 0 and pd.notna(acc):
-        lead = (f"65세 이상은 {place} 인구의 {elderly / people:.1%}인데 보행자 사고의 {acc / all_acc:.1%}를 차지합니다. "
-                "노인보호구역이 이들이 다치는 곳을 얼마나 덮고 있는지 살펴봅니다.")
-    header(f"{scope} · {year}년 · 사고 발생 지역 기준", title, lead)
-
-    d_acc, up_acc = change(acc, prev_acc, "건")
-    d_dead, up_dead = change(dead, prev_dead, "명")
-    d_rate = "전년 자료 없음" if pd.isna(prev_rate) else f"{year - 1}년 {prev_rate:,.1f}건"
-    kpis([
-        ("고령 보행자 사고", num(acc), "건", d_acc, up_acc, None),
-        ("고령 보행 사망자", num(dead), "명", d_dead, up_dead, None),
-        ("고령인구 1만 명당 사고", num(rate, 1), "건", d_rate, False, None),
-        ("노인보호구역", num(facilities), "곳", f"{year}년 말 지정 명단 기준", False, BLUE),
-    ])
-
-    left, right = st.columns(2, gap="medium")
-    with left, st.container(border=True):
-        trend = in_scope(panel).groupby("사고연도", as_index=False)["고령보행자_사고건수"].sum(min_count=1).dropna()
-        card_title(f"{place} 고령 보행자 사고 추이", f"사고 건수, {years[0]}–{years[-1]}년")
-        if trend.empty:
-            st.info("선택한 범위에 연도별 사고건수 자료가 없습니다.")
-        else:
-            fig = go.Figure(go.Scatter(x=trend["사고연도"], y=trend["고령보행자_사고건수"], mode="lines+markers+text",
-                                       text=[f"{v:,.0f}" for v in trend["고령보행자_사고건수"]], textposition="top center",
-                                       line=dict(color=ORANGE, width=3), marker=dict(size=10, color="#FFFFFF", line=dict(color=ORANGE, width=3)),
-                                       hovertemplate="%{x}년: %{y:,.0f}건<extra></extra>", cliponaxis=False))
-            fig.update_xaxes(dtick=1, showgrid=False)
-            fig.update_yaxes(rangemode="tozero", tickformat=",")
-            st.plotly_chart(style(fig, 330), width="stretch")
-        source("출처: 한국도로교통공단 TAAS 시군구별 보행노인 사고 통계")
-    with right, st.container(border=True):
-        ranked = year_all.dropna(subset=["고령인구1만명당_고령보행자사고"]).sort_values("고령인구1만명당_고령보행자사고", ascending=False)
-        if ranked.empty:
-            card_title("자치구별 사고율")
-            st.info("선택한 연도에 자치구별 사고율 자료가 없습니다.")
-        else:
-            top, low = ranked.iloc[0], ranked.iloc[-1]
-            ratio = top["고령인구1만명당_고령보행자사고"] / low["고령인구1만명당_고령보행자사고"]
-            card_title(f"사고율은 {top['자치구명']}가 {low['자치구명']}의 {ratio:.1f}배입니다", f"고령인구 1만 명당 사고 건수, {year}년 상위 10개 구")
-            st.plotly_chart(ranking_chart(ranked.head(10), "고령인구1만명당_고령보행자사고", None if gu == "서울 전체" else gu, 330), width="stretch")
-        source("사고는 발생 지역, 인구는 거주지 기준입니다. 전체 순위는 ‘지역별 사고 현황’에서 볼 수 있습니다.")
-
-    with st.container(border=True):
-        linked = in_scope(links[links["사고연도"] == year])
-        counts = band_counts(linked)
-        if sum(counts) == 0:
-            card_title("사고다발지역과 보호구역")
-            st.info("선택한 연도와 자치구에는 공식 선정 기준을 충족한 사고다발지역이 없습니다. 사고가 없었다는 뜻은 아닙니다.")
-        else:
-            card_title(f"사고다발지역 {sum(counts)}곳 중 보호구역과 겹치는 곳은 {counts[0]}곳입니다",
-                       f"{year}년 고령 보행자 사고다발지역에서 가장 가까운 노인보호구역 경계까지의 직선거리")
-            segs = "".join(f'<span style="flex:{n} 1 0;background:{c}"></span>' for (_, c), n in zip(BANDS, counts) if n)
-            keys = "".join(f'<div><div class="k"><i style="background:{c}"></i>{escape(name)}</div><div class="n">{n}<span> 곳</span></div></div>'
-                           for (name, c), n in zip(BANDS, counts))
-            html(f'<div class="ea-bar" role="img" aria-label="거리 구간별 사고다발지역 수">{segs}</div><div class="ea-bands">{keys}</div>')
-
-    note("이 수치를 읽을 때",
-         "사고다발지역은 공단이 선정한 영역이며 개별 사고 전체가 아닙니다. 보호구역 경계는 현재 API 기록이라 지정 당시 범위와 다를 수 있고, "
-         "명단에 있지만 경계 자료가 없는 시설도 있습니다. 겹치지 않는다는 사실이 보호구역의 효과가 없다는 뜻은 아닙니다.")
+    hotspot_total = h["다발지역FID"].nunique()
+    trend = (
+        in_scope(panel).groupby("사고연도", as_index=False)["고령보행자_사고건수"]
+        .sum(min_count=1).dropna()
+    )
+    linked = in_scope(links[links["사고연도"] == year])
+    metrics = [
+        ("고령 보행자 사고", acc, "건", change(acc, prev_acc, "건")[0]),
+        ("고령 보행 사망자", dead, "명", change(dead, prev_dead, "명")[0]),
+        (f"{year}년 고령 보행자 사고다발지역", hotspot_total, "곳", "TAAS 선정 지역"),
+        ("노인보호구역", facilities, "곳", f"{year}년 말 지정 명단 기준"),
+    ]
+    overview_page(scope, year, all_dead, dead, metrics, trend, band_counts(linked), hotspot_total)
 
 # ── 02 지역별 사고 현황 ───────────────────────────────────────────────
 elif page == "지역별 사고 현황":
-    usable = year_all.dropna(subset=["고령보행자_사고건수"])
-    if usable.empty:
-        header(f"서울 25개 자치구 · {year}년", "선택한 연도에 사고 자료가 없습니다")
-    else:
-        by_rate = usable.dropna(subset=["고령인구1만명당_고령보행자사고"]).sort_values("고령인구1만명당_고령보행자사고", ascending=False)
-        by_count = usable.sort_values("고령보행자_사고건수", ascending=False)
-        most = by_count.iloc[0]["자치구명"]
-        if by_rate.empty:
-            title = f"사고가 가장 많은 곳은 {most}입니다"
-        elif by_rate.iloc[0]["자치구명"] == most:
-            title = f"사고 건수와 인구 대비 사고율 모두 {most}가 가장 높습니다"
-        else:
-            title = f"사고가 가장 많은 곳은 {most}, 인구 대비로는 {by_rate.iloc[0]['자치구명']}입니다"
-        header(f"서울 25개 자치구 · {year}년 · 사고 발생 지역 기준", title,
-               "사고 건수와 고령인구 1만 명당 사고율은 서로 다른 질문에 답합니다. 두 지표의 순위가 어떻게 달라지는지 비교해 보세요.")
-        html("<div style='height:16px'></div>")
-        with st.container(border=True):
-            metric = st.radio("표시 지표", ["고령인구1만명당_고령보행자사고", "고령보행자_사고건수"], horizontal=True,
-                              format_func=lambda x: "사고 건수" if x == "고령보행자_사고건수" else "고령인구 1만 명당 사고")
-            card_title("자치구별 " + ("고령 보행자 사고 건수" if metric == "고령보행자_사고건수" else "고령인구 1만 명당 사고 건수"),
-                       f"{year}년" + ("" if gu == "서울 전체" else f" · {gu} 강조"))
-            st.plotly_chart(ranking_chart(usable.dropna(subset=[metric]), metric, None if gu == "서울 전체" else gu, 720), width="stretch")
-            source("출처: TAAS 시군구별 보행노인 사고 통계, 서울 열린데이터광장 65세 이상 인구. 사고는 발생 지역, 인구는 거주지 기준입니다.")
+    header(f"서울 25개 자치구 · {year}년", "지역별 사고 현황")
+    with st.container(border=True):
+        title_column, control_column = st.columns([2, 3], vertical_alignment="center")
+        with title_column:
+            card_title("25개 자치구 비교")
+        with control_column:
+            label = st.selectbox("비교 지표", list(DISTRICT_METRICS), label_visibility="collapsed")
+        district_ranking(year_all, label, gu)
+        source(f"{year}년 기준 · 큰 값부터 표시 · 동대문구와 도봉구 강조")
+        source("자료: 한국도로교통공단 TAAS, 서울 열린데이터광장, 서울시 지정 명단, 팀 공간 분석")
 
     with st.container(border=True):
         card_title("자치구별 연도별 추이", f"{years[0]}–{years[-1]}년. 사이드바의 사고연도와 무관하게 전체 기간을 보여줍니다.")
@@ -665,5 +915,6 @@ else:
          "명단에 새로 등장한 연도는 실제 지정 고시일과 다를 수 있고, 지정 당시의 경계도 확인되지 않았습니다. "
          "지정 효과는 개별 사고 자료와 정보공개청구 결과를 확보한 뒤에 판단할 수 있습니다.")
 
-st.divider()
-st.caption("데이터 출처와 처리 기준: 저장소 README.md · 데이터사전.md · data/processed/ | 관측된 공간 관계와 사고 감소의 인과효과는 다릅니다.")
+if page != "개요":
+    st.divider()
+    st.caption("데이터 출처와 처리 기준: 저장소 README.md · 데이터사전.md · data/processed/ | 관측된 공간 관계와 사고 감소의 인과효과는 다릅니다.")
