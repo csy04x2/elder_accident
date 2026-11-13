@@ -425,43 +425,52 @@ const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const format = new Intl.NumberFormat('ko-KR');
 const toggle = report.querySelector('#toggle');
 let timer;
+let frame;
 
-function animateNumbers() {
-  if (reducedMotion.matches) return;
-  for (const [index, number] of numbers.entries()) {
-    number.textContent = '0';
-    const value = Number(number.dataset.value);
-    const start = performance.now() + index * 125;
-    function draw(now) {
-      const fraction = Math.max(0, Math.min(1, (now - start) / 950));
-      number.textContent = format.format(Math.round(value * (1 - (1 - fraction) ** 3)));
-      if (fraction < 1) requestAnimationFrame(draw);
-    }
-    requestAnimationFrame(draw);
+function showTotals() {
+  cancelAnimationFrame(frame);
+  for (const number of numbers) {
+    number.textContent = format.format(Number(number.dataset.value));
   }
 }
 
-function refreshDisplay() {
+function animateNumbers() {
   if (!report.isConnected) {
     clearInterval(timer);
     return;
   }
   if (document.hidden || reducedMotion.matches) return;
-  for (const number of numbers) {
-    number.parentElement.animate(
-      [{ boxShadow: 'inset 0 0 16px #6fffe449' }, { boxShadow: 'none' }],
-      { duration: 650, easing: 'ease-out' },
-    );
+  cancelAnimationFrame(frame);
+  const start = performance.now();
+  for (const number of numbers) number.textContent = '0';
+
+  function draw(now) {
+    let counting = false;
+    for (const [index, number] of numbers.entries()) {
+      const elapsed = now - start - index * 125;
+      const fraction = Math.max(0, Math.min(1, elapsed / 950));
+      const value = Number(number.dataset.value);
+      number.textContent = format.format(Math.round(value * (1 - (1 - fraction) ** 3)));
+      counting ||= fraction < 1;
+    }
+    if (counting) frame = requestAnimationFrame(draw);
   }
+
+  frame = requestAnimationFrame(draw);
 }
 
 function setRefresh(enabled) {
   clearInterval(timer);
-  timer = enabled ? setInterval(refreshDisplay, 5000) : undefined;
+  timer = enabled ? setInterval(animateNumbers, 5000) : undefined;
+  if (!enabled) showTotals();
   toggle.textContent = enabled ? '효과 일시정지' : '효과 재개';
 }
 
-toggle.addEventListener('click', () => setRefresh(!timer));
+toggle.addEventListener('click', () => {
+  const enabled = timer === undefined;
+  setRefresh(enabled);
+  if (enabled) animateNumbers();
+});
 toggle.hidden = reducedMotion.matches;
 animateNumbers();
 setRefresh(!reducedMotion.matches);
@@ -595,7 +604,7 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
 <p class="eyebrow">개요 · {escape(scope)}</p>
 <h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
 <section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
-<div class="controls"><span>{year}년 집계 · 5초 간격 전광판 효과</span>
+<div class="controls"><span>{year}년 집계 · 5초 간격 숫자 다시 세기</span>
 <button id="toggle" type="button">효과 일시정지</button></div>
 <section class="charts" aria-label="사고 추이와 보호구역 거리">
 <article class="panel"><h2>고령 보행자 사고 추이</h2>
