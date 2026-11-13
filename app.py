@@ -476,12 +476,12 @@ OVERVIEW_DISTANCE = """<svg xmlns="http://www.w3.org/2000/svg" class="chart" vie
 def overview_trend(trend, unit="건"):
     """Draw the trend with a marked axis break when all values fit the detail range."""
     if trend.empty:
-        return '<p class="chart-empty">선택 범위에 연도별 사고 자료가 없습니다.</p>'
+        return '<p class="chart-empty">선택 범위에 연도별 자료가 없습니다.</p>'
 
     records = list(trend.itertuples(index=False, name=None))
     values = [value for _, value in records]
     maximum = max(values)
-    broken_axis = min(values) >= 1800 and maximum <= 2100
+    broken_axis = unit == "건" and min(values) >= 1800 and maximum <= 2100
     if broken_axis:
         lower, upper, bottom, top = 1800, 2100, 156, 27
         tick_values = range(lower, upper + 1, 100)
@@ -539,7 +539,76 @@ def overview_svg_slot(markup):
     return f'<div data-overview-svg="{encoded}"></div>'
 
 
-def overview_page(scope, year, all_dead, dead, metrics, population_trend, accident_share, death_share):
+def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_total):
+    cards = []
+    for index, (label, value, unit, detail, digits) in enumerate(metrics):
+        value_text = num(value, digits)
+        if pd.isna(value):
+            value_html = '<span>자료 없음</span>'
+        else:
+            value_html = (
+                f'<span class="number" data-value="{value}" data-digits="{digits}" aria-hidden="true">{value_text}</span>'
+                f'<span class="unit" aria-hidden="true">{escape(unit)}</span>'
+            )
+        accessible_value = value_text if pd.isna(value) else value_text + unit
+        cards.append(
+            f'<article class="metric" style="--i:{index}"><h2>{escape(label)}</h2>'
+            f'<div class="display" role="group" aria-label="{escape(accessible_value)}">{value_html}</div>'
+            f'<p>{escape(detail)}</p></article>'
+        )
+
+    summary = ""
+    if pd.notna(all_dead) and all_dead > 0 and pd.notna(dead):
+        summary = f'<p class="lede">보행 사망자 {num(all_dead)}명 중 <strong>65세 이상 {num(dead)}명</strong></p>'
+
+    if sum(counts):
+        distance = OVERVIEW_DISTANCE.replace(
+            "__DISTANCE_LABEL__",
+            escape(", ".join(f"{label} {count}곳" for (label, _), count in zip(BANDS, counts))),
+        )
+        for index, count in enumerate(counts):
+            distance = distance.replace(f"__BAND_{index}__", str(count))
+    else:
+        message = (
+            "선택 범위의 보호구역 경계 거리 자료가 없습니다."
+            if hotspot_total else "선택 범위에 선정된 사고다발지역이 없습니다."
+        )
+        distance = f'<p class="chart-empty">{message}</p>'
+
+    trend_chart = overview_trend(trend)
+    if not trend.empty:
+        trend_chart = overview_svg_slot(trend_chart)
+    if sum(counts):
+        distance = overview_svg_slot(distance)
+
+    st.html(
+        f"""<style>{OVERVIEW_CSS}</style>
+<div class="ea-overview" lang="ko">
+<header><div class="brand"><span class="logo" aria-hidden="true"></span> 서울 보행안전 리포트</div>
+<span class="period">{year}년 · 사고 발생 지역 기준</span></header>
+<div>
+<section class="hero" aria-labelledby="headline">{overview_svg_slot(OVERVIEW_FLOW)}
+<p class="eyebrow">개요 · {escape(scope)}</p>
+<h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
+<section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
+<section class="charts" aria-label="사고 추이와 보호구역 거리">
+<article class="panel"><h2>고령 보행자 사고 추이</h2>
+<p class="sub">사고 건수 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
+{trend_chart}
+<p class="note">한국도로교통공단 TAAS · 사고 발생 지역 기준</p></article>
+<article class="panel"><h2>사고다발지역과 보호구역 거리</h2>
+<p class="sub">가장 가까운 확보 보호구역 경계까지 직선거리 · 거리 자료 {sum(counts)}곳</p>
+{distance}
+<p class="note"><strong>점은 거리 구간별 집계</strong> · 확보한 보호구역 경계 기준 잠정값</p></article>
+</section></div>
+<footer>자료 · 한국도로교통공단 TAAS, 서울시 지정 명단, 팀 공간 분석<br>
+사고다발지역은 공단이 선정한 영역입니다. 일부 지정 시설의 경계 자료가 빠져 있으며, 확보한 경계가 지정 당시 범위와 다를 수 있습니다.</footer>
+</div><script>{OVERVIEW_SCRIPT}</script>""",
+        unsafe_allow_javascript=True,
+    )
+
+
+def protection_need_page(scope, year, all_dead, dead, metrics, population_trend, accident_share, death_share):
     """원래 개요 시안의 디자인을 유지하며 보호 필요성의 근거를 표시."""
     cards = []
     for index, (label, value, unit, detail) in enumerate(metrics):
@@ -548,7 +617,7 @@ def overview_page(scope, year, all_dead, dead, metrics, population_trend, accide
             value_html = '<span>자료 없음</span>'
         else:
             value_html = (
-                f'<span class="number" data-value="{int(value)}" aria-hidden="true">{value_text}</span>'
+                f'<span class="number" data-value="{int(value)}" data-digits="0" aria-hidden="true">{value_text}</span>'
                 f'<span class="unit" aria-hidden="true">{escape(unit)}</span>'
             )
         accessible_value = value_text if pd.isna(value) else value_text + unit
@@ -591,8 +660,6 @@ def overview_page(scope, year, all_dead, dead, metrics, population_trend, accide
 <p class="eyebrow">01 · {escape(scope)}</p>
 <h1 id="headline">왜 고령 보행자 보호가 필요한가?</h1>{summary}</section>
 <section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
-<div class="controls"><span>{year}년 집계 · 5초 간격 숫자 다시 세기</span>
-<button id="toggle" type="button">효과 일시정지</button></div>
 <section class="charts" aria-label="고령인구 추이와 사망 피해 비중">
 <article class="panel"><h2>고령인구는 어떻게 변했나?</h2>
 <p class="sub">65세 이상 거주인구 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
@@ -628,7 +695,7 @@ GU_COLORS = ["#C2410C", "#1D4ED8", "#0F766E", "#7C3AED", "#BE185D", "#4D7C0F", "
 GU_DASHES = ["solid", "dash", "dot", "dashdot", "longdash"]
 GU_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "x", "star", "triangle-down"]
 
-PAGES = ["왜 보호가 필요한가?", "어디가 위험한가?", "어디를 우선 검토해야 하는가?", "무엇을 개선해야 하는가?"]
+PAGES = ["개요", "왜 보호가 필요한가?", "어디가 위험한가?", "어디를 우선 검토해야 하는가?", "무엇을 개선해야 하는가?"]
 years = sorted(panel["사고연도"].dropna().astype(int).unique())
 gu_list = sorted(panel["자치구명"].dropna().unique())
 with st.sidebar:
@@ -648,7 +715,33 @@ h = in_scope(hotspots[hotspots["사고연도"] == year]).copy()
 z = in_scope(zones).copy()
 
 # ── 01 개요 ───────────────────────────────────────────────────────────
-if page == "왜 보호가 필요한가?":
+if page == "개요":
+    acc = total(p, "고령보행자_사고건수")
+    dead = total(p, "고령보행자_사망자수")
+    all_dead = total(p, "전체보행자_사망자수")
+    prev_acc = total(prev, "고령보행자_사고건수")
+    prev_dead = total(prev, "고령보행자_사망자수")
+    facilities = total(p, "보호구역_명단시설수")
+    hotspot_total = h["다발지역FID"].nunique()
+    trend = (
+        in_scope(panel).groupby("사고연도", as_index=False)["고령보행자_사고건수"]
+        .sum(min_count=1).dropna()
+    )
+    linked = in_scope(links[links["사고연도"] == year])
+    population = total(p, "고령인구")
+    previous_population = total(prev, "고령인구")
+    rate = acc / population * 10_000 if population > 0 else float("nan")
+    previous_rate = prev_acc / previous_population * 10_000 if previous_population > 0 else float("nan")
+    rate_detail = "전년 자료 없음" if pd.isna(previous_rate) else f"{year - 1}년 {num(previous_rate, 1)}건"
+    metrics = [
+        ("고령 보행자 사고", acc, "건", change(acc, prev_acc, "건")[0], 0),
+        ("고령 보행 사망자", dead, "명", change(dead, prev_dead, "명")[0], 0),
+        ("고령인구 1만 명당 사고", rate, "건", rate_detail, 1),
+        ("노인보호구역", facilities, "곳", f"{year}년 말 지정 명단 기준", 0),
+    ]
+    overview_page(scope, year, all_dead, dead, metrics, trend, band_counts(linked), hotspot_total)
+
+elif page == "왜 보호가 필요한가?":
     acc = total(p, "고령보행자_사고건수")
     dead = total(p, "고령보행자_사망자수")
     all_acc = total(p, "전체보행자_사고건수")
@@ -665,7 +758,7 @@ if page == "왜 보호가 필요한가?":
         ("고령 보행 사망자", dead, "명", "사고 발생 지역 기준"),
         ("전체 보행 사망자", all_dead, "명", "모든 연령의 보행 사망자"),
     ]
-    overview_page(scope, year, all_dead, dead, metrics, population_trend, accident_share, death_share)
+    protection_need_page(scope, year, all_dead, dead, metrics, population_trend, accident_share, death_share)
 
 # ── 02 지역별 사고 현황 ───────────────────────────────────────────────
 elif page == "어디가 위험한가?":
@@ -857,6 +950,6 @@ else:
          "신규 등재 연도가 실제 지정 고시일과 일치하지 않을 수 있고, 현재 API 경계는 과거 지정 당시 범위를 뜻하지 않습니다. "
          "현장 시설 확인 및 실제 지정 전후 개별 사고 기록 없이 정책 효과를 단정할 수 없습니다.")
 
-if page != "왜 보호가 필요한가?":
+if page not in ("개요", "왜 보호가 필요한가?"):
     st.divider()
     st.caption("데이터 출처와 처리 기준: 저장소 README.md · 데이터사전.md · data/processed/ | 관측된 공간 관계와 사고 감소의 인과효과는 다릅니다.")
