@@ -473,7 +473,7 @@ OVERVIEW_DISTANCE = """<svg xmlns="http://www.w3.org/2000/svg" class="chart" vie
     """
 
 
-def overview_trend(trend):
+def overview_trend(trend, unit="건"):
     """Draw the trend with a marked axis break when all values fit the detail range."""
     if trend.empty:
         return '<p class="chart-empty">선택 범위에 연도별 사고 자료가 없습니다.</p>'
@@ -521,7 +521,7 @@ def overview_trend(trend):
             f'<text class="value" x="{x}" y="{y - 12}">{value:,.0f}</text></g>'
             f'<text x="{x}" y="201">{record_year:.0f}</text>'
         )
-        labels.append(f"{record_year:.0f}년 {value:,.0f}건")
+        labels.append(f"{record_year:.0f}년 {value:,.0f}{unit}")
 
     if broken_axis:
         labels.append("세로축 0~1,800건 사이 생략")
@@ -539,15 +539,16 @@ def overview_svg_slot(markup):
     return f'<div data-overview-svg="{encoded}"></div>'
 
 
-def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_total):
+def overview_page(scope, year, all_dead, dead, metrics, population_trend, accident_share, death_share):
+    """원래 개요 시안의 디자인을 유지하며 보호 필요성의 근거를 표시."""
     cards = []
-    for index, (label, value, unit, detail, digits) in enumerate(metrics):
-        value_text = num(value, digits)
+    for index, (label, value, unit, detail) in enumerate(metrics):
+        value_text = num(value)
         if pd.isna(value):
             value_html = '<span>자료 없음</span>'
         else:
             value_html = (
-                f'<span class="number" data-value="{value}" data-digits="{digits}" aria-hidden="true">{value_text}</span>'
+                f'<span class="number" data-value="{int(value)}" aria-hidden="true">{value_text}</span>'
                 f'<span class="unit" aria-hidden="true">{escape(unit)}</span>'
             )
         accessible_value = value_text if pd.isna(value) else value_text + unit
@@ -561,48 +562,49 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
     if pd.notna(all_dead) and all_dead > 0 and pd.notna(dead):
         summary = f'<p class="lede">보행 사망자 {num(all_dead)}명 중 <strong>65세 이상 {num(dead)}명</strong></p>'
 
-    if sum(counts):
-        distance = OVERVIEW_DISTANCE.replace(
-            "__DISTANCE_LABEL__",
-            escape(", ".join(f"{label} {count}곳" for (label, _), count in zip(BANDS, counts))),
-        )
-        for index, count in enumerate(counts):
-            distance = distance.replace(f"__BAND_{index}__", str(count))
-    else:
-        message = (
-            "선택 범위의 보호구역 경계 거리 자료가 없습니다."
-            if hotspot_total else "선택 범위에 선정된 사고다발지역이 없습니다."
-        )
-        distance = f'<p class="chart-empty">{message}</p>'
+    population_chart = overview_trend(population_trend, unit="명")
+    if not population_trend.empty:
+        population_chart = overview_svg_slot(population_chart)
 
-    trend_chart = overview_trend(trend)
-    if not trend.empty:
-        trend_chart = overview_svg_slot(trend_chart)
-    if sum(counts):
-        distance = overview_svg_slot(distance)
+    def share_bar(label, value):
+        if pd.isna(value):
+            return f'<div class="share-row"><span>{escape(label)}</span><strong>자료 없음</strong></div>'
+        width = max(0, min(float(value), 100))
+        return (
+            f'<div class="share-row"><span>{escape(label)}</span><strong>{value:.1f}%</strong></div>'
+            f'<div class="share-track"><div style="width:{width:.2f}%"></div></div>'
+        )
 
+    shares = share_bar("전체 보행자 사고 중 고령 보행자 사고 비중", accident_share)
+    shares += share_bar("전체 보행 사망자 중 고령 보행자 사망 비중", death_share)
     st.html(
-        f"""<style>{OVERVIEW_CSS}</style>
+        f"""<style>{OVERVIEW_CSS}
+.ea-overview .share-row{{display:flex;justify-content:space-between;gap:16px;font-size:13px;margin:15px 0 7px}}
+.ea-overview .share-row strong{{color:var(--aqua);font-size:17px}}
+.ea-overview .share-track{{height:13px;background:#263f5b;border-radius:6px;overflow:hidden}}
+.ea-overview .share-track div{{height:100%;background:linear-gradient(90deg,#81cfff,#8ceee6);border-radius:6px}}
+</style>
 <div class="ea-overview" lang="ko">
 <header><div class="brand"><span class="logo" aria-hidden="true"></span> 서울 보행안전 리포트</div>
 <span class="period">{year}년 · 사고 발생 지역 기준</span></header>
-<div>
 <section class="hero" aria-labelledby="headline">{overview_svg_slot(OVERVIEW_FLOW)}
-<p class="eyebrow">개요 · {escape(scope)}</p>
-<h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
+<p class="eyebrow">01 · {escape(scope)}</p>
+<h1 id="headline">왜 고령 보행자 보호가 필요한가?</h1>{summary}</section>
 <section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
-<section class="charts" aria-label="사고 추이와 보호구역 거리">
-<article class="panel"><h2>고령 보행자 사고 추이</h2>
-<p class="sub">사고 건수 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
-{trend_chart}
-<p class="note">한국도로교통공단 TAAS · 사고 발생 지역 기준</p></article>
-<article class="panel"><h2>사고다발지역과 보호구역 거리</h2>
-<p class="sub">가장 가까운 확보 보호구역 경계까지 직선거리 · 거리 자료 {sum(counts)}곳</p>
-{distance}
-<p class="note"><strong>점은 거리 구간별 집계</strong> · 확보한 보호구역 경계 기준 잠정값</p></article>
-</section></div>
-<footer>자료 · 한국도로교통공단 TAAS, 서울시 지정 명단, 팀 공간 분석<br>
-사고다발지역은 공단이 선정한 영역입니다. 일부 지정 시설의 경계 자료가 빠져 있으며, 확보한 경계가 지정 당시 범위와 다를 수 있습니다.</footer>
+<div class="controls"><span>{year}년 집계 · 5초 간격 숫자 다시 세기</span>
+<button id="toggle" type="button">효과 일시정지</button></div>
+<section class="charts" aria-label="고령인구 추이와 사망 피해 비중">
+<article class="panel"><h2>고령인구는 어떻게 변했나?</h2>
+<p class="sub">65세 이상 거주인구 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
+{population_chart}
+<p class="note">서울 열린데이터광장 · 해당 지역 거주인구</p></article>
+<article class="panel"><h2>사고와 사망 피해에서 고령층의 비중은?</h2>
+<p class="sub">{year}년 · 전체 보행자 사고와 보행 사망자 중 65세 이상 비중</p>
+{shares}
+<p class="note">사망 비중은 전체 사망자 중 고령층의 몫입니다. 사고 1건당 사망위험률과 구분해야 합니다.</p></article>
+</section>
+<footer>자료 · 한국도로교통공단 TAAS, 서울 열린데이터광장<br>
+인구는 거주지 기준, 사고는 발생 지역 기준입니다. 사망자 비중은 개인의 사고 발생 위험이나 사고당 치명률을 뜻하지 않습니다.</footer>
 </div><script>{OVERVIEW_SCRIPT}</script>""",
         unsafe_allow_javascript=True,
     )
@@ -626,7 +628,7 @@ GU_COLORS = ["#C2410C", "#1D4ED8", "#0F766E", "#7C3AED", "#BE185D", "#4D7C0F", "
 GU_DASHES = ["solid", "dash", "dot", "dashdot", "longdash"]
 GU_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "x", "star", "triangle-down"]
 
-PAGES = ["개요", "지역별 사고 현황", "공간 분석 지도", "지정 전후 탐색"]
+PAGES = ["왜 보호가 필요한가?", "어디가 위험한가?", "어디를 우선 검토해야 하는가?", "무엇을 개선해야 하는가?"]
 years = sorted(panel["사고연도"].dropna().astype(int).unique())
 gu_list = sorted(panel["자치구명"].dropna().unique())
 with st.sidebar:
@@ -646,72 +648,43 @@ h = in_scope(hotspots[hotspots["사고연도"] == year]).copy()
 z = in_scope(zones).copy()
 
 # ── 01 개요 ───────────────────────────────────────────────────────────
-if page == "개요":
+if page == "왜 보호가 필요한가?":
     acc = total(p, "고령보행자_사고건수")
     dead = total(p, "고령보행자_사망자수")
+    all_acc = total(p, "전체보행자_사고건수")
     all_dead = total(p, "전체보행자_사망자수")
-    prev_acc = total(prev, "고령보행자_사고건수")
-    prev_dead = total(prev, "고령보행자_사망자수")
-    facilities = total(p, "보호구역_명단시설수")
-    hotspot_total = h["다발지역FID"].nunique()
-    trend = (
-        in_scope(panel).groupby("사고연도", as_index=False)["고령보행자_사고건수"]
-        .sum(min_count=1).dropna()
-    )
-    linked = in_scope(links[links["사고연도"] == year])
-    population = total(p, "고령인구")
-    previous_population = total(prev, "고령인구")
-    rate = acc / population * 10_000 if population > 0 else float("nan")
-    previous_rate = prev_acc / previous_population * 10_000 if previous_population > 0 else float("nan")
-    rate_detail = "전년 자료 없음" if pd.isna(previous_rate) else f"{year - 1}년 {num(previous_rate, 1)}건"
+    elderly = total(p, "고령인구")
+    prev_elderly = total(prev, "고령인구")
+    population_trend = (in_scope(panel).groupby("사고연도", as_index=False)["고령인구"]
+                        .sum(min_count=1).dropna())
+    accident_share = acc / all_acc * 100 if pd.notna(acc) and pd.notna(all_acc) and all_acc > 0 else float("nan")
+    death_share = dead / all_dead * 100 if pd.notna(dead) and pd.notna(all_dead) and all_dead > 0 else float("nan")
     metrics = [
-        ("고령 보행자 사고", acc, "건", change(acc, prev_acc, "건")[0], 0),
-        ("고령 보행 사망자", dead, "명", change(dead, prev_dead, "명")[0], 0),
-        ("고령인구 1만 명당 사고", rate, "건", rate_detail, 1),
-        ("노인보호구역", facilities, "곳", f"{year}년 말 지정 명단 기준", 0),
+        ("65세 이상 거주인구", elderly, "명", change(elderly, prev_elderly, "명")[0]),
+        ("고령 보행자 사고", acc, "건", "전체 보행자 사고 중 고령층"),
+        ("고령 보행 사망자", dead, "명", "사고 발생 지역 기준"),
+        ("전체 보행 사망자", all_dead, "명", "모든 연령의 보행 사망자"),
     ]
-    overview_page(scope, year, all_dead, dead, metrics, trend, band_counts(linked), hotspot_total)
+    overview_page(scope, year, all_dead, dead, metrics, population_trend, accident_share, death_share)
 
 # ── 02 지역별 사고 현황 ───────────────────────────────────────────────
-elif page == "지역별 사고 현황":
-    header(f"서울 25개 자치구 · {year}년", "지역별 사고 현황")
+elif page == "어디가 위험한가?":
+    header(f"02 · 서울 25개 자치구 · {year}년", "어디가 위험한가?",
+           "고령인구 1만 명당 사고율로 지역 차이를 확인하고, 동대문·도봉 사례를 서울 전체와 비교합니다.")
     with st.container(border=True):
         title_column, control_column = st.columns([2, 3], vertical_alignment="center")
         with title_column:
             card_title("25개 자치구 비교")
         with control_column:
-            label = st.selectbox("비교 지표", list(DISTRICT_METRICS), label_visibility="collapsed")
+            label = st.selectbox("비교 지표", list(DISTRICT_METRICS),
+                                 index=list(DISTRICT_METRICS).index("고령인구 1만 명당 사고 건수"),
+                                 label_visibility="collapsed")
         district_ranking(year_all, label, gu)
         source(f"{year}년 기준 · 큰 값부터 표시 · 동대문구와 도봉구 강조")
         source("자료: 한국도로교통공단 TAAS, 서울 열린데이터광장, 서울시 지정 명단, 팀 공간 분석")
 
     with st.container(border=True):
-        card_title("자치구별 연도별 추이", f"{years[0]}–{years[-1]}년. 사이드바의 사고연도와 무관하게 전체 기간을 보여줍니다.")
-        trend_metric = st.radio("추이 지표", ["고령보행자_사고건수", "고령인구1만명당_고령보행자사고"],
-                                format_func=lambda v: "사고건수 (건)" if v == "고령보행자_사고건수" else "고령인구 1만 명당 사고율 (건)",
-                                horizontal=True, key="district_trend_metric")
-        default = [gu] if gu != "서울 전체" else [g for g in ("동대문구", "도봉구") if g in gu_list]
-        picked = st.multiselect("비교할 자치구", gu_list, default=default)
-        comparison = panel[panel["자치구명"].isin(picked)].dropna(subset=[trend_metric]).sort_values("사고연도")
-        if comparison.empty:
-            st.info("비교할 자치구를 하나 이상 선택해 주세요.")
-        else:
-            look = {g: (GU_COLORS[i % len(GU_COLORS)], GU_DASHES[i % len(GU_DASHES)], GU_SYMBOLS[i % len(GU_SYMBOLS)])
-                    for i, g in enumerate(gu_list)}
-            fig2 = px.line(comparison, x="사고연도", y=trend_metric, color="자치구명", line_dash="자치구명", symbol="자치구명",
-                           category_orders={"자치구명": [g for g in gu_list if g in picked]},
-                           color_discrete_map={g: v[0] for g, v in look.items()},
-                           line_dash_map={g: v[1] for g, v in look.items()},
-                           symbol_map={g: v[2] for g, v in look.items()},
-                           labels={"사고연도": "", trend_metric: "사고 건수 (건)" if trend_metric == "고령보행자_사고건수" else "고령인구 1만 명당 사고율 (건)", "자치구명": "자치구"})
-            fig2.update_traces(line=dict(width=2.5), marker=dict(size=9))
-            fig2.update_xaxes(dtick=1, showgrid=False)
-            fig2.update_layout(hovermode="closest", legend=dict(orientation="v", x=1.02, y=1, xanchor="left", yanchor="top", title_text=""))
-            st.plotly_chart(style(fig2, max(380, 24 * len(picked) + 80)), width="stretch")
-        source("자치구마다 색·선 모양·표식 모양이 고정돼 있습니다. 범례를 누르면 해당 구를 숨기거나 다시 볼 수 있습니다. 결측값은 0건으로 바꾸지 않고 비워 둡니다.")
-
-    with st.container(border=True):
-        card_title("사고율 격차·순위 변화", f"{year}년 서울 전체 고령인구 1만 명당 사고율과 자치구별 격차")
+        card_title("서울 대비 격차와 전년 순위 변화", f"{year}년 서울 전체 고령인구 1만 명당 사고율과 자치구별 격차")
         rate_rows = year_all.dropna(subset=["고령보행자_사고건수", "고령인구"]).copy()
         population = total(rate_rows, "고령인구")
         seoul_rate = total(rate_rows, "고령보행자_사고건수") / population * 10000 if pd.notna(population) and population > 0 else float("nan")
@@ -729,13 +702,6 @@ elif page == "지역별 사고 현황":
         rate_rows["사고 증감률(%)"] = (rate_rows["사고 증감(건)"] / rate_rows["전년사고건수"].where(rate_rows["전년사고건수"] != 0) * 100)
         if pd.notna(seoul_rate) and not rate_rows.empty:
             source(f"서울 전체 사고율: {seoul_rate:.2f}건/1만 명 = 서울 전체 고령 보행자 사고건수 ÷ 서울 전체 65세 이상 거주인구 × 10,000 (자치구 단순 평균 아님)")
-            plot_rates = rate_rows.sort_values("서울 대비 격차")
-            bars = go.Figure(go.Bar(x=plot_rates["서울 대비 격차"], y=plot_rates["자치구명"], orientation="h",
-                                    marker_color=[ORANGE_DARK if g == gu else (ORANGE if v >= 0 else BLUE_SOFT)
-                                                  for g, v in zip(plot_rates["자치구명"], plot_rates["서울 대비 격차"])],
-                                    hovertemplate="%{y}: 서울 대비 %{x:+.2f}건/1만 명<extra></extra>"))
-            bars.add_vline(x=0, line_color=GRAY, line_width=1)
-            st.plotly_chart(style(bars, 650), width="stretch")
             view_rates = rate_rows.sort_values("순위")[["자치구명", "순위", "전년순위", "순위 변화(상승+)", "사고율", "서울 대비 격차", "사고 증감(건)", "사고 증감률(%)"]]
             st.dataframe(view_rates, hide_index=True, width="stretch",
                          column_config={"사고율": st.column_config.NumberColumn(format="%.2f"),
@@ -746,13 +712,13 @@ elif page == "지역별 사고 현황":
         source("순위·증감은 전년과 비교합니다. 2022년은 전년 자료가 없어 표시하지 않습니다. 거주 인구는 실제 보행량이 아닙니다.")
 
     with st.container(border=True):
-        card_title("동대문구·도봉구와 서울 전체 비교", "두 지역은 탐색 사례이며 서울 전체 분석을 대체하지 않습니다.")
+        card_title("동대문구·도봉구는 서울 전체와 어떻게 다른가?", "두 지역은 탐색 사례이며 서울 전체 분석을 대체하지 않습니다.")
         case = panel[panel["자치구명"].isin(["동대문구", "도봉구"])][["사고연도", "자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고"]].copy()
         baseline = panel.groupby("사고연도", as_index=False)[["고령보행자_사고건수", "고령인구"]].sum(min_count=1)
         baseline["고령인구1만명당_고령보행자사고"] = (baseline["고령보행자_사고건수"] / baseline["고령인구"] * 10000)
         baseline["자치구명"] = "서울 전체"
         case = pd.concat([case, baseline[["사고연도", "자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고"]]], ignore_index=True)
-        case_metric = st.radio("비교 지표", ["고령보행자_사고건수", "고령인구1만명당_고령보행자사고"], horizontal=True,
+        case_metric = st.radio("비교 지표", ["고령인구1만명당_고령보행자사고", "고령보행자_사고건수"], horizontal=True,
                                format_func=lambda v: "사고건수 (건)" if v == "고령보행자_사고건수" else "고령인구 1만 명당 사고율 (건)", key="case_metric")
         fig_case = px.line(case.dropna(subset=[case_metric]), x="사고연도", y=case_metric, color="자치구명", markers=True,
                            color_discrete_map={"서울 전체": NAVY, "동대문구": ORANGE, "도봉구": BLUE},
@@ -767,7 +733,7 @@ elif page == "지역별 사고 현황":
                         "고령인구1만명당_고령보행자사고", "고령보행자_출처"]], hide_index=True, width="stretch")
 
 # ── 03 공간 분석 지도 ─────────────────────────────────────────────────
-elif page == "공간 분석 지도":
+elif page == "어디를 우선 검토해야 하는가?":
     view, joined = plot_map(h, z, links, gu)
     known = joined["경계중첩"].notna()
     overlapping = int((joined.loc[known, "경계중첩"] == 1).sum())
@@ -777,7 +743,8 @@ elif page == "공간 분석 지도":
         title = f"{place}에는 {year}년 사고다발지역이 없습니다"
     else:
         title = f"{place} 사고다발지역 {len(joined)}곳 중 {outside}곳은 보호구역 밖에 있습니다"
-    header(f"{scope} · {year}년 · 사고다발지역 선정 영역 기준", title)
+    header(f"03 · {scope} · {year}년", "어디를 우선 검토해야 하는가?",
+           "공식 사고다발지역과 확보한 보호구역 경계의 공간 관계를 현장 조사 후보를 찾는 단서로 활용합니다.")
     cards = [("사고다발지역", f"{len(joined)}", "곳", "공단 선정 영역 수", False, None),
              ("보호구역과 겹침", f"{overlapping}", "곳", "경계가 맞닿거나 겹침", False, BLUE),
              ("보호구역 밖", f"{outside}", "곳", "경계와 떨어져 있음", False, "#B93815"),
@@ -832,6 +799,29 @@ elif page == "공간 분석 지도":
             if overlapping + outside:
                 source(f"판정 가능한 {overlapping + outside}곳 중 보호구역 밖은 {outside}곳({outside / (overlapping + outside):.1%})입니다.")
 
+    with st.container(border=True):
+        card_title("현장 검토 후보 살펴보기",
+                   "동대문·금천·은평·중랑은 예시 후보이며, 조사 우선순위가 확정된 것은 아닙니다.")
+        example = ["동대문구", "금천구", "은평구", "중랑구"]
+        sample = joined[joined["자치구명"].isin(example)].copy()
+        summary = sample.groupby("자치구명", as_index=False).agg(
+            선정영역수=("다발지역FID", "nunique"),
+            비중첩_선정영역수=("경계중첩", lambda v: int((v == 0).sum())),
+            중첩_선정영역수=("경계중첩", lambda v: int((v == 1).sum())),
+            판정미상_선정영역수=("경계중첩", lambda v: int(v.isna().sum())),
+        ) if not sample.empty else pd.DataFrame()
+        if summary.empty:
+            st.info("현재 선택한 범위와 연도에서 예시 지역의 사고다발지역 기록이 없습니다.")
+        else:
+            summary = summary.merge(
+                year_all[["자치구명", "고령인구1만명당_고령보행자사고"]],
+                on="자치구명", how="left", validate="one_to_one")
+            st.dataframe(summary.sort_values(["비중첩_선정영역수", "자치구명"], ascending=[False, True]),
+                         hide_index=True, width="stretch")
+        source("비중첩은 현재 확보한 API 보호구역 경계와의 관계입니다. "
+               "사고다발지역은 선정된 영역이며 모든 개별 사고가 아닙니다. "
+               "이 표만으로 정책 실패나 개선 우선순위를 결정할 수 없습니다.")
+
     with st.expander("자료 표 보기"):
         st.dataframe(joined[["지점명", "사고연도", "사고건수", "경계중첩", "최단거리_m"]], hide_index=True, width="stretch")
     note("이 지도를 읽을 때",
@@ -839,45 +829,34 @@ elif page == "공간 분석 지도":
          "경계는 현재 API 기록이라 지정 당시 범위와 다를 수 있고 공식 지정 시설 전체를 포괄하지 않을 수 있습니다. "
          "사고다발지역은 개별 사고 지점이 아니라 선정된 영역입니다.")
 
-# ── 04 지정 전후 탐색 ─────────────────────────────────────────────────
+# ── 04 정책 개선 방향 ─────────────────────────────────────────────────
 else:
+    header(f"04 · {scope} · 정책 검토", "무엇을 개선해야 하는가?",
+           "지역별 사고율과 사고다발지역의 위치는 현장 검토의 출발점입니다. 현재 자료만으로 보호구역 지정 효과를 판정하지 않습니다.")
+    with st.container(border=True):
+        card_title("분석에서 확인한 것과 아직 확인할 것")
+        st.markdown(
+            "고령 보행자 피해는 서울 전체에서 지속적으로 살펴야 하며, 자치구별 사고율에는 차이가 있습니다. "
+            "보호구역 경계 밖의 사고다발지역은 현장 검토 후보가 될 수 있지만, 지정의 효과나 실패를 의미하지는 않습니다."
+        )
+        st.markdown(
+            "**다음 검토 방향**  \n"
+            "① 후보지의 보행 동선과 교차로·횡단보도 위험요인 현장 확인  \n"
+            "② 보호구역 실제 지정일·지정 범위와 안전시설 설치 현황 대조  \n"
+            "③ 필요성이 확인된 곳의 보호구역 지정·범위 조정·안전시설 개선 검토"
+        )
     candidates = in_scope(master[(master["명단변동"] == "신규등재") & master["지정연도"].notna()]).copy()
-    with_boundary = int((pd.to_numeric(candidates["API경계기록수"], errors="coerce") > 0).sum())
-    header(f"{scope} · 지정 전후 탐색", "지정 효과는 아직 판단할 수 없습니다",
-           "같은 보호구역의 지정 전과 후 개별 사고 건수를 비교할 자료가 없습니다. 아래는 사고다발지역 선정 기록과 신규 지정 시설을 나란히 놓은 탐색 자료입니다.")
-    kpis([
-        ("신규 등재 시설", f"{len(candidates)}", "곳", "2023–2025년 명단에 새로 등장", False, BLUE),
-        ("경계 자료가 있는 시설", f"{with_boundary}", "곳", "공간 비교가 가능한 곳", False, None),
-        ("경계 자료가 없는 시설", f"{len(candidates) - with_boundary}", "곳", "API에 경계 없음", False, None),
-    ])
-
-    with st.container(border=True):
-        card_title("사고다발지역 선정 기록 추이", "연도별 선정 영역 수. 사고 추세나 지정 효과의 추정치가 아닙니다.")
-        counts = in_scope(hotspots).groupby(["사고연도", "선정기준구간"], as_index=False).size()
-        if counts.empty:
-            st.info("선택한 자치구에는 사고다발지역 선정 기록이 없습니다.")
-        else:
-            eras = sorted(counts["선정기준구간"].unique())
-            fig = px.bar(counts, x="사고연도", y="size", color="선정기준구간",
-                         color_discrete_map=dict(zip(eras, [GRAY, ORANGE])),
-                         labels={"size": "선정 영역 수 (곳)", "사고연도": "", "선정기준구간": "선정 기준"})
-            fig.update_xaxes(dtick=1, showgrid=False)
-            fig.update_layout(legend=dict(orientation="h", y=1.12, title_text=""), bargap=0.25)
-            st.plotly_chart(style(fig, 360), width="stretch")
-        source("회색과 주황은 선정 기준이 다른 구간입니다. 두 구간을 하나의 추세로 이어서 읽으면 안 됩니다.")
-
-    with st.container(border=True):
-        card_title("신규 등재 시설", "서울시 연말 지정 명단에 새로 등장한 노인보호구역")
+    with st.expander("기존 지정 기록 참고"):
         if candidates.empty:
-            st.info("선택한 자치구에는 신규 등재 시설이 없습니다.")
+            st.info("선택 지역에 신규 등재 시설 기록이 없습니다.")
         else:
             st.dataframe(candidates.sort_values(["지정연도", "자치구명"], ascending=[False, True])
-                         [["시설명", "자치구명", "지정연도", "최초등재명단", "API경계기록수"]], hide_index=True, width="stretch")
+                         [["시설명", "자치구명", "지정연도", "최초등재명단", "API경계기록수"]],
+                         hide_index=True, width="stretch")
+    note("해석 한계",
+         "신규 등재 연도가 실제 지정 고시일과 일치하지 않을 수 있고, 현재 API 경계는 과거 지정 당시 범위를 뜻하지 않습니다. "
+         "현장 시설 확인 및 실제 지정 전후 개별 사고 기록 없이 정책 효과를 단정할 수 없습니다.")
 
-    note("이 자료를 읽을 때",
-         "명단에 새로 등장한 연도는 실제 지정 고시일과 다를 수 있고, 지정 당시의 경계도 확인되지 않았습니다. "
-         "지정 효과는 개별 사고 자료와 정보공개청구 결과를 확보한 뒤에 판단할 수 있습니다.")
-
-if page != "개요":
+if page != "왜 보호가 필요한가?":
     st.divider()
     st.caption("데이터 출처와 처리 기준: 저장소 README.md · 데이터사전.md · data/processed/ | 관측된 공간 관계와 사고 감소의 인과효과는 다릅니다.")
