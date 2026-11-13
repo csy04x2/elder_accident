@@ -842,57 +842,6 @@ elif page == "공간 분석 지도":
             if overlapping + outside:
                 source(f"판정 가능한 {overlapping + outside}곳 중 보호구역 밖은 {outside}곳({outside / (overlapping + outside):.1%})입니다.")
 
-    with st.container(border=True):
-        card_title("자치구 사고 수준과 보호구역 공간 관계", f"{year}년 자치구별 사고율과 사고다발지역의 API 경계 중첩 여부 (정책 효과 추정 아님)")
-        linked_year = links[links["사고연도"] == year].dropna(subset=["경계중첩"]).copy()
-        linked_year["비중첩"] = (linked_year["경계중첩"] == 0).astype(int)
-        areas = linked_year.groupby("자치구명").agg(판정가능_선정지역수=("비중첩", "size"), 비중첩_선정지역수=("비중첩", "sum")).reset_index()
-        areas["비중첩비율_%"] = areas["비중첩_선정지역수"] / areas["판정가능_선정지역수"] * 100
-        rates = year_all[["자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고", "보호구역_명단시설수"]]
-        joined_rates = rates.merge(areas, on="자치구명", how="left", validate="one_to_one")
-        if gu != "서울 전체":
-            joined_rates = joined_rates[joined_rates["자치구명"] == gu]
-        available = joined_rates.dropna(subset=["고령인구1만명당_고령보행자사고", "비중첩비율_%"])
-        if available.empty:
-            st.info("선택한 자치구·연도에는 중첩 판정 가능한 사고다발지역이 없어 공간 비교를 표시하지 않습니다.")
-        elif gu == "서울 전체":
-            # 사고율 순위와 비중첩 선정 영역의 분자/분모를 한 행에 표시한다.
-            # 비중첩 비율은 구 전체 사고건수의 비율이나 보호 효과가 아니다.
-            ranked = joined_rates.dropna(subset=["고령인구1만명당_고령보행자사고"]).copy()
-            ranked = ranked.sort_values("고령인구1만명당_고령보행자사고")
-            max_rate = ranked["고령인구1만명당_고령보행자사고"].max()
-            note_x = max_rate * 1.20
-            fig_spatial = go.Figure(go.Bar(
-                x=ranked["고령인구1만명당_고령보행자사고"],
-                y=ranked["자치구명"], orientation="h",
-                marker_color=ORANGE, width=0.65,
-                text=ranked["고령인구1만명당_고령보행자사고"].map(lambda v: f"{v:.1f}"),
-                textposition="outside", cliponaxis=False,
-                hovertemplate="%{y}<br>고령인구 1만 명당 사고: %{x:.2f}건<extra></extra>",
-            ))
-            for _, item in ranked.iterrows():
-                count = item["판정가능_선정지역수"]
-                outside_count = item["비중첩_선정지역수"]
-                detail = (f"{int(outside_count)}/{int(count)}곳"
-                          if pd.notna(count) and count > 0 else "선정 영역 없음")
-                fig_spatial.add_annotation(
-                    x=note_x, y=item["자치구명"], text=detail,
-                    xanchor="left", showarrow=False,
-                    font=dict(size=12, color=MUTED),
-                )
-            fig_spatial.update_xaxes(
-                title="고령인구 1만 명당 사고 (건)",
-                range=[0, max_rate * 1.85], showgrid=False,
-            )
-            fig_spatial.update_yaxes(title=None, automargin=True)
-            st.caption("막대: 자치구 전체 사고율 · 오른쪽: 보호구역 API 경계와 비중첩인 사고다발지역 수 / 중첩 판정 가능 선정지역 수")
-            st.plotly_chart(style(fig_spatial, max(340, 30 * len(ranked) + 100)), width="stretch")
-        st.dataframe(joined_rates[["자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고",
-                                  "보호구역_명단시설수", "판정가능_선정지역수", "비중첩_선정지역수", "비중첩비율_%"]],
-                     hide_index=True, width="stretch")
-        source("사고건수·사고율은 자치구 전체, 중첩 비율은 사고다발지역 '선정 영역' 중 판정 가능한 곳의 비율입니다. "
-               "선정 영역이 없는 자치구는 0%로 처리하지 않습니다. 현행 API 경계와의 공간 비교는 정책 공백 탐색용이며 보호 효과를 뜻하지 않습니다.")
-
     with st.expander("자료 표 보기"):
         st.dataframe(joined[["지점명", "사고연도", "사고건수", "경계중첩", "최단거리_m"]], hide_index=True, width="stretch")
     note("이 지도를 읽을 때",
