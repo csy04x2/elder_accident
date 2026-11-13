@@ -372,17 +372,13 @@ OVERVIEW_CSS = """
 .ea-overview .lede{font-size:clamp(16px,2.25vw,22px);margin:13px 0 0;color:#c5d9ee;letter-spacing:-.025em}
 .ea-overview .lede strong{color:var(--aqua)}
 .ea-overview .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.ea-overview .metric{min-width:0;border:1px solid #30516c;border-radius:12px;padding:16px 17px 14px;background:radial-gradient(circle at 90% 0%,#163652,transparent 80%),#0c1c30;animation:arrive .55s both;animation-delay:calc(var(--i)*125ms)}
-.ea-overview .metric h2{font-size:13px;line-height:1.35;margin:0 0 11px;color:#d5e8f8}
-.ea-overview .display{padding:5px 9px 6px;background:radial-gradient(circle,#5ba1cd2b .7px,transparent 1.2px) 0 0/5px 5px,#07121e;border:1px solid #233f54;border-radius:6px;white-space:nowrap}
-.ea-overview .number{font:700 clamp(27px,4vw,48px)/1.1 "Courier New",monospace;letter-spacing:-.08em;color:var(--aqua);text-shadow:0 0 14px #62ffe875;font-variant-numeric:tabular-nums}
+.ea-overview .metric{display:grid;grid-template-rows:subgrid;grid-row:span 3;row-gap:8px;min-width:0;border:1px solid #30516c;border-radius:12px;padding:16px 17px 14px;background:radial-gradient(circle at 90% 0%,#163652,transparent 80%),#0c1c30;animation:arrive .55s both;animation-delay:calc(var(--i)*125ms)}
+.ea-overview .metric h2{font-size:13px;line-height:1.35;margin:0;color:#d5e8f8}
+.ea-overview .display{display:flex;align-items:baseline;min-height:3.7rem;padding:5px 9px 6px;background:radial-gradient(circle,#5ba1cd2b .7px,transparent 1.2px) 0 0/5px 5px,#07121e;border:1px solid #233f54;border-radius:6px;white-space:nowrap}
+.ea-overview .number{font:700 clamp(25px,4.8cqi,48px)/1.1 "Courier New",monospace;letter-spacing:-.08em;color:var(--aqua);text-shadow:0 0 14px #62ffe875;font-variant-numeric:tabular-nums}
 .ea-overview .unit{font-size:13px;margin-left:8px;color:#c8e6ef}
-.ea-overview .metric p{margin:9px 0 0;font-size:12px;color:var(--muted)}
-.ea-overview .controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin:10px 0 19px}
-.ea-overview button{font:inherit;color:#d9efff;background:#132943;border:1px solid #395875;border-radius:6px;padding:4px 9px;cursor:pointer}
-.ea-overview button:focus-visible{outline:2px solid var(--aqua);outline-offset:3px}
-.ea-overview .scan{animation:scan .65s ease-out}
-.ea-overview .charts{display:grid;grid-template-columns:1.07fr 1fr;gap:14px}
+.ea-overview .metric p{margin:0;font-size:12px;color:var(--muted)}
+.ea-overview .charts{display:grid;grid-template-columns:1.07fr 1fr;gap:14px;margin-top:22px}
 .ea-overview .panel{background:linear-gradient(155deg,#122641,#0b192b 85%);border:1px solid var(--line);border-radius:15px;padding:19px 20px 16px;min-width:0}
 .ea-overview .panel h2{font-size:20px;letter-spacing:-.045em;margin:0}
 .ea-overview .sub,.ea-overview .note{color:var(--muted);font-size:12px;line-height:1.55;margin:5px 0 0}
@@ -396,8 +392,7 @@ OVERVIEW_CSS = """
 .ea-overview footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.65;margin-top:19px;padding:11px 0 20px}
 @keyframes arrive{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
 @keyframes draw{to{stroke-dashoffset:0}}
-@keyframes scan{25%{box-shadow:inset 0 0 16px #6fffe449}100%{box-shadow:none}}
-@container (max-width:780px){.ea-overview .charts{grid-template-columns:1fr}.ea-overview .hero{padding-top:32px}.ea-overview .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ea-overview .number{font-size:37px}}
+@container (max-width:780px){.ea-overview .charts{grid-template-columns:1fr}.ea-overview .hero{padding-top:32px}.ea-overview .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.ea-overview .number{font-size:clamp(24px,7cqi,37px)}}
 @container (max-width:360px){.ea-overview .metric{padding:10px}.ea-overview .panel{padding:12px}.ea-overview .brand{font-size:12px}}
 @media(prefers-reduced-motion:reduce){.ea-overview *,.ea-overview *:before,.ea-overview *:after{animation-duration:0s!important;animation-delay:0s!important}.ea-overview .trend{stroke-dashoffset:0}}
 
@@ -422,58 +417,32 @@ for (const slot of report.querySelectorAll('[data-overview-svg]')) {
 }
 const numbers = [...report.querySelectorAll('.number')];
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const format = new Intl.NumberFormat('ko-KR');
-const toggle = report.querySelector('#toggle');
-let timer;
-let frame;
-
-function showTotals() {
-  cancelAnimationFrame(frame);
-  for (const number of numbers) {
-    number.textContent = format.format(Number(number.dataset.value));
-  }
-}
-
-function animateNumbers() {
-  if (!report.isConnected) {
-    clearInterval(timer);
-    return;
-  }
-  if (document.hidden || reducedMotion.matches) return;
-  cancelAnimationFrame(frame);
+const formats = [0, 1].map(digits => new Intl.NumberFormat('ko-KR', {
+  minimumFractionDigits: digits, maximumFractionDigits: digits,
+}));
+if (!reducedMotion.matches) {
   const start = performance.now();
-  for (const number of numbers) number.textContent = '0';
+  for (const number of numbers) {
+    number.textContent = number.dataset.digits === '1' ? '0.0' : '0';
+  }
 
   function draw(now) {
+    if (!report.isConnected) return;
     let counting = false;
     for (const [index, number] of numbers.entries()) {
       const elapsed = now - start - index * 125;
       const fraction = Math.max(0, Math.min(1, elapsed / 950));
       const value = Number(number.dataset.value);
-      number.textContent = format.format(Math.round(value * (1 - (1 - fraction) ** 3)));
+      const digits = Number(number.dataset.digits);
+      const current = value * (1 - (1 - fraction) ** 3);
+      number.textContent = formats[digits].format(current);
       counting ||= fraction < 1;
     }
-    if (counting) frame = requestAnimationFrame(draw);
+    if (counting) requestAnimationFrame(draw);
   }
 
-  frame = requestAnimationFrame(draw);
+  requestAnimationFrame(draw);
 }
-
-function setRefresh(enabled) {
-  clearInterval(timer);
-  timer = enabled ? setInterval(animateNumbers, 5000) : undefined;
-  if (!enabled) showTotals();
-  toggle.textContent = enabled ? '효과 일시정지' : '효과 재개';
-}
-
-toggle.addEventListener('click', () => {
-  const enabled = timer === undefined;
-  setRefresh(enabled);
-  if (enabled) animateNumbers();
-});
-toggle.hidden = reducedMotion.matches;
-animateNumbers();
-setRefresh(!reducedMotion.matches);
 })();
 """
 OVERVIEW_FLOW = """
@@ -505,22 +474,38 @@ OVERVIEW_DISTANCE = """<svg xmlns="http://www.w3.org/2000/svg" class="chart" vie
 
 
 def overview_trend(trend):
-    """Draw from the first available year, using a zero-based scale."""
+    """Draw the trend with a marked axis break when all values fit the detail range."""
     if trend.empty:
         return '<p class="chart-empty">선택 범위에 연도별 사고 자료가 없습니다.</p>'
 
     records = list(trend.itertuples(index=False, name=None))
-    maximum = max(value for _, value in records)
-    target = max(1, maximum / 4)
-    magnitude = 10 ** floor(log10(target))
-    step = ceil(target / magnitude) * magnitude
-    ceiling = step * 4
+    values = [value for _, value in records]
+    maximum = max(values)
+    broken_axis = min(values) >= 1800 and maximum <= 2100
+    if broken_axis:
+        lower, upper, bottom, top = 1800, 2100, 156, 27
+        tick_values = range(lower, upper + 1, 100)
+        axis_mark = (
+            '<path d="M56 156v9l-4 4 8 4-4 4v7H452" fill="none" stroke="#b9cee4"/>'
+            '<text x="48" y="188" text-anchor="end">0</text>'
+        )
+    else:
+        target = max(1, maximum / 4)
+        magnitude = 10 ** floor(log10(target))
+        step = ceil(target / magnitude) * magnitude
+        lower, upper, bottom, top = 0, step * 4, 180, 44
+        tick_values = range(0, upper + 1, step)
+        axis_mark = ""
+
+    def y_position(value):
+        return bottom - (value - lower) / (upper - lower) * (bottom - top)
+
     ticks = []
-    for index in range(5):
-        y = 180 - index * 34
+    for value in tick_values:
+        y = y_position(value)
         ticks.append(
             f'<path class="grid" d="M56 {y}H452"/>'
-            f'<text x="48" y="{y + 4}" text-anchor="end">{index * step:,}</text>'
+            f'<text x="48" y="{y + 4}" text-anchor="end">{value:,}</text>'
         )
 
     coordinates = []
@@ -528,7 +513,7 @@ def overview_trend(trend):
     labels = []
     for index, (record_year, value) in enumerate(records):
         x = 76 + 354 * index / max(len(records) - 1, 1)
-        y = 180 - value / ceiling * 136
+        y = y_position(value)
         coordinates.append(f"{x:.2f} {y:.2f}")
         markers.append(
             f'<g class="point" style="--delay:{.38 + index * 1.9 / max(len(records) - 1, 1):.2f}s">'
@@ -538,10 +523,12 @@ def overview_trend(trend):
         )
         labels.append(f"{record_year:.0f}년 {value:,.0f}건")
 
+    if broken_axis:
+        labels.append("세로축 0~1,800건 사이 생략")
     path = "M" + "L".join(coordinates)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" class="chart" viewBox="0 0 480 211" role="img" aria-label="{escape(", ".join(labels))}">'
-        f'{"".join(ticks)}<path class="trend" pathLength="1" d="{path}"/>'
+        f'{"".join(ticks)}{axis_mark}<path class="trend" pathLength="1" d="{path}"/>'
         f'<g text-anchor="middle">{"".join(markers)}</g></svg>'
     )
 
@@ -554,13 +541,13 @@ def overview_svg_slot(markup):
 
 def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_total):
     cards = []
-    for index, (label, value, unit, detail) in enumerate(metrics):
-        value_text = num(value)
+    for index, (label, value, unit, detail, digits) in enumerate(metrics):
+        value_text = num(value, digits)
         if pd.isna(value):
             value_html = '<span>자료 없음</span>'
         else:
             value_html = (
-                f'<span class="number" data-value="{int(value)}" aria-hidden="true">{value_text}</span>'
+                f'<span class="number" data-value="{value}" data-digits="{digits}" aria-hidden="true">{value_text}</span>'
                 f'<span class="unit" aria-hidden="true">{escape(unit)}</span>'
             )
         accessible_value = value_text if pd.isna(value) else value_text + unit
@@ -604,8 +591,6 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
 <p class="eyebrow">개요 · {escape(scope)}</p>
 <h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
 <section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
-<div class="controls"><span>{year}년 집계 · 5초 간격 숫자 다시 세기</span>
-<button id="toggle" type="button">효과 일시정지</button></div>
 <section class="charts" aria-label="사고 추이와 보호구역 거리">
 <article class="panel"><h2>고령 보행자 사고 추이</h2>
 <p class="sub">사고 건수 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
@@ -674,11 +659,16 @@ if page == "개요":
         .sum(min_count=1).dropna()
     )
     linked = in_scope(links[links["사고연도"] == year])
+    population = total(p, "고령인구")
+    previous_population = total(prev, "고령인구")
+    rate = acc / population * 10_000 if population > 0 else float("nan")
+    previous_rate = prev_acc / previous_population * 10_000 if previous_population > 0 else float("nan")
+    rate_detail = "전년 자료 없음" if pd.isna(previous_rate) else f"{year - 1}년 {num(previous_rate, 1)}건"
     metrics = [
-        ("고령 보행자 사고", acc, "건", change(acc, prev_acc, "건")[0]),
-        ("고령 보행 사망자", dead, "명", change(dead, prev_dead, "명")[0]),
-        (f"{year}년 고령 보행자 사고다발지역", hotspot_total, "곳", "TAAS 선정 지역"),
-        ("노인보호구역", facilities, "곳", f"{year}년 말 지정 명단 기준"),
+        ("고령 보행자 사고", acc, "건", change(acc, prev_acc, "건")[0], 0),
+        ("고령 보행 사망자", dead, "명", change(dead, prev_dead, "명")[0], 0),
+        ("고령인구 1만 명당 사고", rate, "건", rate_detail, 1),
+        ("노인보호구역", facilities, "곳", f"{year}년 말 지정 명단 기준", 0),
     ]
     overview_page(scope, year, all_dead, dead, metrics, trend, band_counts(linked), hotspot_total)
 
