@@ -1,6 +1,7 @@
 """서울 고령 보행자 교통사고 탐색 대시보드 (기존 processed CSV 전용)."""
 from pathlib import Path
 import json
+from base64 import b64encode
 from math import ceil, floor, log10
 from html import escape
 
@@ -409,6 +410,16 @@ OVERVIEW_SCRIPT = """
 const report = document.querySelector('.ea-overview');
 if (!report || report.dataset.animated) return;
 report.dataset.animated = 'true';
+
+// Streamlit sanitizes inline SVG. Decode the server-generated artwork and mount it as SVG.
+for (const slot of report.querySelectorAll('[data-overview-svg]')) {
+  const bytes = Uint8Array.from(atob(slot.dataset.overviewSvg), character => character.charCodeAt(0));
+  const markup = new TextDecoder().decode(bytes);
+  const svg = new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement;
+  if (svg.namespaceURI === 'http://www.w3.org/2000/svg' && svg.localName === 'svg') {
+    slot.replaceWith(svg);
+  }
+}
 const numbers = [...report.querySelectorAll('.number')];
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const format = new Intl.NumberFormat('ko-KR');
@@ -457,7 +468,7 @@ setRefresh(!reducedMotion.matches);
 })();
 """
 OVERVIEW_FLOW = """
-  <svg viewBox="0 0 640 205" aria-hidden="true">
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 205" aria-hidden="true">
     <defs><linearGradient id="flow"><stop stop-color="#70bffa" stop-opacity="0"/><stop offset="1" stop-color="#70bffa" stop-opacity=".66"/></linearGradient></defs>
     <g fill="none" stroke="url(#flow)">
       <path d="M0 178C180 176 200 117 331 102S478 119 640 13"/>
@@ -468,7 +479,7 @@ OVERVIEW_FLOW = """
     <circle cx="331" cy="102" r="3" fill="#86f1e5"/><circle cx="524" cy="78" r="3" fill="#86f1e5"/>
   </svg>
 """
-OVERVIEW_DISTANCE = """<svg class="chart" viewBox="0 0 480 211" role="img" aria-label="__DISTANCE_LABEL__">
+OVERVIEW_DISTANCE = """<svg xmlns="http://www.w3.org/2000/svg" class="chart" viewBox="0 0 480 211" role="img" aria-label="__DISTANCE_LABEL__">
       <defs><linearGradient id="ruler"><stop stop-color="#8ceee6"/><stop offset="1" stop-color="#6fa1fb"/></linearGradient></defs>
       <path d="M30 112H447l-8-5m8 5l-8 5" fill="none" stroke="url(#ruler)" stroke-width="2"/>
       <path d="M30 104v16M100 104v16M240 104v16M380 104v16" stroke="#98b9da"/>
@@ -520,10 +531,16 @@ def overview_trend(trend):
 
     path = "M" + "L".join(coordinates)
     return (
-        f'<svg class="chart" viewBox="0 0 480 211" role="img" aria-label="{escape(", ".join(labels))}">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" class="chart" viewBox="0 0 480 211" role="img" aria-label="{escape(", ".join(labels))}">'
         f'{"".join(ticks)}<path class="trend" pathLength="1" d="{path}"/>'
         f'<g text-anchor="middle">{"".join(markers)}</g></svg>'
     )
+
+
+def overview_svg_slot(markup):
+    """Carry trusted, server-generated SVG through Streamlit's HTML sanitizer."""
+    encoded = b64encode(markup.strip().encode("utf-8")).decode("ascii")
+    return f'<div data-overview-svg="{encoded}"></div>'
 
 
 def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_total):
@@ -562,13 +579,19 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
         )
         distance = f'<p class="chart-empty">{message}</p>'
 
+    trend_chart = overview_trend(trend)
+    if not trend.empty:
+        trend_chart = overview_svg_slot(trend_chart)
+    if sum(counts):
+        distance = overview_svg_slot(distance)
+
     st.html(
         f"""<style>{OVERVIEW_CSS}</style>
 <div class="ea-overview" lang="ko">
 <header><div class="brand"><span class="logo" aria-hidden="true"></span> 서울 보행안전 리포트</div>
 <span class="period">{year}년 · 사고 발생 지역 기준</span></header>
 <div>
-<section class="hero" aria-labelledby="headline">{OVERVIEW_FLOW}
+<section class="hero" aria-labelledby="headline">{overview_svg_slot(OVERVIEW_FLOW)}
 <p class="eyebrow">개요 · {escape(scope)}</p>
 <h1 id="headline">고령 보행자 교통안전</h1>{summary}</section>
 <section class="metrics" aria-label="주요 지표">{"".join(cards)}</section>
@@ -577,7 +600,7 @@ def overview_page(scope, year, all_dead, dead, metrics, trend, counts, hotspot_t
 <section class="charts" aria-label="사고 추이와 보호구역 거리">
 <article class="panel"><h2>고령 보행자 사고 추이</h2>
 <p class="sub">사고 건수 · {years[0]}–{years[-1]}년 · {escape(scope)}</p>
-{overview_trend(trend)}
+{trend_chart}
 <p class="note">한국도로교통공단 TAAS · 사고 발생 지역 기준</p></article>
 <article class="panel"><h2>사고다발지역과 보호구역 거리</h2>
 <p class="sub">가장 가까운 확보 보호구역 경계까지 직선거리 · 거리 자료 {sum(counts)}곳</p>
