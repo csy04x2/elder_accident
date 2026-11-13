@@ -446,26 +446,81 @@ elif page == "지역별 사고 현황":
             source("출처: TAAS 시군구별 보행노인 사고 통계, 서울 열린데이터광장 65세 이상 인구. 사고는 발생 지역, 인구는 거주지 기준입니다.")
 
     with st.container(border=True):
-        card_title("자치구별 연도별 추이", f"고령 보행자 사고 건수, {years[0]}–{years[-1]}년. 사이드바의 사고연도와 무관하게 전체 기간을 보여줍니다.")
+        card_title("자치구별 연도별 추이", f"{years[0]}–{years[-1]}년. 사이드바의 사고연도와 무관하게 전체 기간을 보여줍니다.")
+        trend_metric = st.radio("추이 지표", ["고령보행자_사고건수", "고령인구1만명당_고령보행자사고"],
+                                format_func=lambda v: "사고건수 (건)" if v == "고령보행자_사고건수" else "고령인구 1만 명당 사고율 (건)",
+                                horizontal=True, key="district_trend_metric")
         default = [gu] if gu != "서울 전체" else [g for g in ("동대문구", "도봉구") if g in gu_list]
         picked = st.multiselect("비교할 자치구", gu_list, default=default)
-        comparison = panel[panel["자치구명"].isin(picked)].dropna(subset=["고령보행자_사고건수"]).sort_values("사고연도")
+        comparison = panel[panel["자치구명"].isin(picked)].dropna(subset=[trend_metric]).sort_values("사고연도")
         if comparison.empty:
             st.info("비교할 자치구를 하나 이상 선택해 주세요.")
         else:
             look = {g: (GU_COLORS[i % len(GU_COLORS)], GU_DASHES[i % len(GU_DASHES)], GU_SYMBOLS[i % len(GU_SYMBOLS)])
                     for i, g in enumerate(gu_list)}
-            fig2 = px.line(comparison, x="사고연도", y="고령보행자_사고건수", color="자치구명", line_dash="자치구명", symbol="자치구명",
+            fig2 = px.line(comparison, x="사고연도", y=trend_metric, color="자치구명", line_dash="자치구명", symbol="자치구명",
                            category_orders={"자치구명": [g for g in gu_list if g in picked]},
                            color_discrete_map={g: v[0] for g, v in look.items()},
                            line_dash_map={g: v[1] for g, v in look.items()},
                            symbol_map={g: v[2] for g, v in look.items()},
-                           labels={"사고연도": "", "고령보행자_사고건수": "사고 건수", "자치구명": "자치구"})
+                           labels={"사고연도": "", trend_metric: "사고 건수 (건)" if trend_metric == "고령보행자_사고건수" else "고령인구 1만 명당 사고율 (건)", "자치구명": "자치구"})
             fig2.update_traces(line=dict(width=2.5), marker=dict(size=9))
             fig2.update_xaxes(dtick=1, showgrid=False)
             fig2.update_layout(hovermode="closest", legend=dict(orientation="v", x=1.02, y=1, xanchor="left", yanchor="top", title_text=""))
             st.plotly_chart(style(fig2, max(380, 24 * len(picked) + 80)), width="stretch")
         source("자치구마다 색·선 모양·표식 모양이 고정돼 있습니다. 범례를 누르면 해당 구를 숨기거나 다시 볼 수 있습니다. 결측값은 0건으로 바꾸지 않고 비워 둡니다.")
+
+    with st.container(border=True):
+        card_title("사고율 격차·순위 변화", f"{year}년 서울 전체 고령인구 1만 명당 사고율과 자치구별 격차")
+        rate_rows = year_all.dropna(subset=["고령보행자_사고건수", "고령인구"]).copy()
+        population = total(rate_rows, "고령인구")
+        seoul_rate = total(rate_rows, "고령보행자_사고건수") / population * 10000 if pd.notna(population) and population > 0 else float("nan")
+        rate_rows["사고율"] = rate_rows["고령보행자_사고건수"] / rate_rows["고령인구"].where(rate_rows["고령인구"] > 0) * 10000
+        rate_rows = rate_rows.dropna(subset=["사고율"])
+        rate_rows["순위"] = rate_rows["사고율"].rank(method="min", ascending=False).astype(int)
+        prev_rows = panel[panel["사고연도"] == year - 1].dropna(subset=["고령보행자_사고건수", "고령인구"]).copy()
+        prev_rows["전년사고율"] = prev_rows["고령보행자_사고건수"] / prev_rows["고령인구"].where(prev_rows["고령인구"] > 0) * 10000
+        prev_rows["전년순위"] = prev_rows["전년사고율"].rank(method="min", ascending=False)
+        rate_rows = rate_rows.merge(prev_rows[["자치구명", "전년사고율", "전년순위", "고령보행자_사고건수"]].rename(
+            columns={"고령보행자_사고건수": "전년사고건수"}), on="자치구명", how="left", validate="one_to_one")
+        rate_rows["서울 대비 격차"] = rate_rows["사고율"] - seoul_rate
+        rate_rows["순위 변화(상승+)"] = rate_rows["전년순위"] - rate_rows["순위"]
+        rate_rows["사고 증감(건)"] = rate_rows["고령보행자_사고건수"] - rate_rows["전년사고건수"]
+        rate_rows["사고 증감률(%)"] = (rate_rows["사고 증감(건)"] / rate_rows["전년사고건수"].where(rate_rows["전년사고건수"] != 0) * 100)
+        if pd.notna(seoul_rate) and not rate_rows.empty:
+            source(f"서울 전체 사고율: {seoul_rate:.2f}건/1만 명 = 서울 전체 고령 보행자 사고건수 ÷ 서울 전체 65세 이상 거주인구 × 10,000 (자치구 단순 평균 아님)")
+            plot_rates = rate_rows.sort_values("서울 대비 격차")
+            bars = go.Figure(go.Bar(x=plot_rates["서울 대비 격차"], y=plot_rates["자치구명"], orientation="h",
+                                    marker_color=[ORANGE_DARK if g == gu else (ORANGE if v >= 0 else BLUE_SOFT)
+                                                  for g, v in zip(plot_rates["자치구명"], plot_rates["서울 대비 격차"])],
+                                    hovertemplate="%{y}: 서울 대비 %{x:+.2f}건/1만 명<extra></extra>"))
+            bars.add_vline(x=0, line_color=GRAY, line_width=1)
+            st.plotly_chart(style(bars, 650), width="stretch")
+            view_rates = rate_rows.sort_values("순위")[["자치구명", "순위", "전년순위", "순위 변화(상승+)", "사고율", "서울 대비 격차", "사고 증감(건)", "사고 증감률(%)"]]
+            st.dataframe(view_rates, hide_index=True, width="stretch",
+                         column_config={"사고율": st.column_config.NumberColumn(format="%.2f"),
+                                        "서울 대비 격차": st.column_config.NumberColumn(format="%+.2f"),
+                                        "사고 증감률(%)": st.column_config.NumberColumn(format="%+.1f")})
+        else:
+            st.info("서울 전체 사고율 또는 지역별 사고율을 계산할 자료가 없습니다.")
+        source("순위·증감은 전년과 비교합니다. 2022년은 전년 자료가 없어 표시하지 않습니다. 거주 인구는 실제 보행량이 아닙니다.")
+
+    with st.container(border=True):
+        card_title("동대문구·도봉구와 서울 전체 비교", "두 지역은 탐색 사례이며 서울 전체 분석을 대체하지 않습니다.")
+        case = panel[panel["자치구명"].isin(["동대문구", "도봉구"])][["사고연도", "자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고"]].copy()
+        baseline = panel.groupby("사고연도", as_index=False)[["고령보행자_사고건수", "고령인구"]].sum(min_count=1)
+        baseline["고령인구1만명당_고령보행자사고"] = (baseline["고령보행자_사고건수"] / baseline["고령인구"] * 10000)
+        baseline["자치구명"] = "서울 전체"
+        case = pd.concat([case, baseline[["사고연도", "자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고"]]], ignore_index=True)
+        case_metric = st.radio("비교 지표", ["고령보행자_사고건수", "고령인구1만명당_고령보행자사고"], horizontal=True,
+                               format_func=lambda v: "사고건수 (건)" if v == "고령보행자_사고건수" else "고령인구 1만 명당 사고율 (건)", key="case_metric")
+        fig_case = px.line(case.dropna(subset=[case_metric]), x="사고연도", y=case_metric, color="자치구명", markers=True,
+                           color_discrete_map={"서울 전체": NAVY, "동대문구": ORANGE, "도봉구": BLUE},
+                           category_orders={"자치구명": ["서울 전체", "동대문구", "도봉구"]},
+                           labels={"사고연도": "연도", case_metric: "사고건수 (건)" if case_metric == "고령보행자_사고건수" else "사고율 (건/1만 명)"})
+        fig_case.update_xaxes(dtick=1)
+        st.plotly_chart(style(fig_case, 330), width="stretch")
+        source("사고건수는 서울 전체와 두 구의 규모가 달라 수치가 크게 벌어집니다. 사고율 비교에는 지역별 고령인구 차이가 반영됩니다.")
 
     with st.expander("자료 표 보기"):
         st.dataframe(p[["사고연도", "자치구명", "고령인구", "고령보행자_사고건수", "고령보행자_사망자수",
@@ -536,6 +591,33 @@ elif page == "공간 분석 지도":
             st.plotly_chart(style(fig, 360), width="stretch")
             if overlapping + outside:
                 source(f"판정 가능한 {overlapping + outside}곳 중 보호구역 밖은 {outside}곳({outside / (overlapping + outside):.1%})입니다.")
+
+    with st.container(border=True):
+        card_title("자치구 사고 수준과 보호구역 공간 관계", f"{year}년 자치구별 사고율과 사고다발지역의 API 경계 중첩 여부 (정책 효과 추정 아님)")
+        linked_year = links[links["사고연도"] == year].dropna(subset=["경계중첩"]).copy()
+        linked_year["비중첩"] = (linked_year["경계중첩"] == 0).astype(int)
+        areas = linked_year.groupby("자치구명").agg(판정가능_선정지역수=("비중첩", "size"), 비중첩_선정지역수=("비중첩", "sum")).reset_index()
+        areas["비중첩비율_%"] = areas["비중첩_선정지역수"] / areas["판정가능_선정지역수"] * 100
+        rates = year_all[["자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고", "보호구역_명단시설수"]]
+        joined_rates = rates.merge(areas, on="자치구명", how="left", validate="one_to_one")
+        if gu != "서울 전체":
+            joined_rates = joined_rates[joined_rates["자치구명"] == gu]
+        available = joined_rates.dropna(subset=["고령인구1만명당_고령보행자사고", "비중첩비율_%"])
+        if available.empty:
+            st.info("선택한 자치구·연도에는 중첩 판정 가능한 사고다발지역이 없어 공간 비교를 표시하지 않습니다.")
+        elif gu == "서울 전체":
+            fig_spatial = px.scatter(available, x="고령인구1만명당_고령보행자사고", y="비중첩비율_%", text="자치구명",
+                                     size="판정가능_선정지역수", hover_name="자치구명",
+                                     hover_data=["고령보행자_사고건수", "보호구역_명단시설수", "판정가능_선정지역수"],
+                                     labels={"고령인구1만명당_고령보행자사고": "고령인구 1만 명당 사고 (건)",
+                                             "비중첩비율_%": "선정지역 중 비중첩 (%)"})
+            fig_spatial.update_traces(textposition="top center", marker=dict(color=ORANGE, opacity=.7))
+            st.plotly_chart(style(fig_spatial, 480), width="stretch")
+        st.dataframe(joined_rates[["자치구명", "고령보행자_사고건수", "고령인구1만명당_고령보행자사고",
+                                  "보호구역_명단시설수", "판정가능_선정지역수", "비중첩_선정지역수", "비중첩비율_%"]],
+                     hide_index=True, width="stretch")
+        source("사고건수·사고율은 자치구 전체, 중첩 비율은 사고다발지역 '선정 영역' 중 판정 가능한 곳의 비율입니다. "
+               "선정 영역이 없는 자치구는 0%로 처리하지 않습니다. 현행 API 경계와의 공간 비교는 정책 공백 탐색용이며 보호 효과를 뜻하지 않습니다.")
 
     with st.expander("자료 표 보기"):
         st.dataframe(joined[["지점명", "사고연도", "사고건수", "경계중첩", "최단거리_m"]], hide_index=True, width="stretch")
