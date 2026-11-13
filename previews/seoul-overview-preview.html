@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서울 고령 보행자 교통안전 · 개요 시안</title>
+<style>
+:root{color-scheme:dark;--navy:#081323;--panel:#0e1e34;--line:#25405e;--white:#edf6ff;--muted:#a9bed5;--blue:#81cfff;--aqua:#8ceee6}
+*{box-sizing:border-box}
+body{margin:0;color:var(--white);background:radial-gradient(ellipse at 72% -15%,#1b4870 0%,transparent 54%),var(--navy);font-family:"Pretendard","Malgun Gothic",system-ui,sans-serif}
+header,main,footer{width:min(1184px,calc(100% - 64px));margin:auto}
+header{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:18px}
+.brand{font-size:15px;font-weight:750;display:flex;align-items:center;gap:12px}
+.logo{width:25px;height:25px;border:1px solid #5186b0;border-radius:7px;background:linear-gradient(125deg,transparent 48%,var(--blue) 49%,var(--blue) 54%,transparent 55%);position:relative}
+.logo:after{content:"";position:absolute;top:8px;left:8px;width:6px;height:6px;background:var(--aqua);border-radius:100%;box-shadow:0 0 10px var(--aqua)}
+.period{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.hero{position:relative;isolation:isolate;padding:51px 0 31px;overflow:hidden}
+.hero svg{position:absolute;z-index:-1;right:-35px;bottom:-19px;width:min(55%,630px);opacity:.62;pointer-events:none}
+.eyebrow{color:var(--blue);font-size:13px;font-weight:700;margin:0 0 12px}
+h1{font-size:clamp(30px,5vw,60px);letter-spacing:-.065em;line-height:1.13;margin:0}
+.lede{font-size:clamp(16px,2.25vw,22px);margin:13px 0 0;color:#c5d9ee;letter-spacing:-.025em}
+.lede strong{color:var(--aqua)}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.metric{min-width:0;border:1px solid #30516c;border-radius:12px;padding:16px 17px 14px;background:radial-gradient(circle at 90% 0%,#163652,transparent 80%),#0c1c30;animation:arrive .55s both;animation-delay:calc(var(--i)*125ms)}
+.metric h2{font-size:13px;line-height:1.35;margin:0 0 11px;color:#d5e8f8}
+.display{padding:5px 9px 6px;background:radial-gradient(circle,#5ba1cd2b .7px,transparent 1.2px) 0 0/5px 5px,#07121e;border:1px solid #233f54;border-radius:6px;white-space:nowrap}
+.number{font:700 clamp(27px,4vw,48px)/1.1 "Courier New",monospace;letter-spacing:-.08em;color:var(--aqua);text-shadow:0 0 14px #62ffe875;font-variant-numeric:tabular-nums}
+.unit{font-size:13px;margin-left:8px;color:#c8e6ef}
+.metric p{margin:9px 0 0;font-size:12px;color:var(--muted)}
+.controls{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin:10px 0 19px}
+button{font:inherit;color:#d9efff;background:#132943;border:1px solid #395875;border-radius:6px;padding:4px 9px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--aqua);outline-offset:3px}
+.scan{animation:scan .65s ease-out}
+.charts{display:grid;grid-template-columns:1.07fr 1fr;gap:14px}
+.panel{background:linear-gradient(155deg,#122641,#0b192b 85%);border:1px solid var(--line);border-radius:15px;padding:19px 20px 16px;min-width:0}
+.panel h2{font-size:20px;letter-spacing:-.045em;margin:0}
+.sub,.note{color:var(--muted);font-size:12px;line-height:1.55;margin:5px 0 0}
+.chart{display:block;width:100%;height:auto;margin:5px 0}
+.chart text{fill:#b9cee4;font-size:13px;font-family:inherit}
+.chart .value{fill:#e6f5ff;font-weight:750;font-size:15px}
+.grid{stroke:#2b425b;stroke-dasharray:4 5}
+.trend{stroke:#83d7ff;stroke-width:3.6;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 2s .38s ease-out forwards}
+.point{animation:arrive .35s both;animation-delay:var(--delay)}
+.note strong{color:#d7edff}
+footer{border-top:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.65;margin-top:19px;padding:11px 0 20px}
+@keyframes arrive{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes scan{25%{box-shadow:inset 0 0 16px #6fffe449}100%{box-shadow:none}}
+@media(max-width:780px){header,main,footer{width:calc(100% - 34px)}.charts{grid-template-columns:1fr}.hero{padding-top:32px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.number{font-size:37px}}
+@media(max-width:360px){.metric{padding:10px}.panel{padding:12px}.brand{font-size:12px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:0s!important;animation-delay:0s!important}.trend{stroke-dashoffset:0}}
+</style>
+</head>
+<body>
+<header><div class="brand"><span class="logo" aria-hidden="true"></span> 서울 보행안전 리포트</div><span class="period">2022–2025 · 서울</span></header>
+<main>
+<section class="hero" aria-labelledby="headline">
+  <svg viewBox="0 0 640 205" aria-hidden="true">
+    <defs><linearGradient id="flow"><stop stop-color="#70bffa" stop-opacity="0"/><stop offset="1" stop-color="#70bffa" stop-opacity=".66"/></linearGradient></defs>
+    <g fill="none" stroke="url(#flow)">
+      <path d="M0 178C180 176 200 117 331 102S478 119 640 13"/>
+      <path d="M0 185C180 183 200 124 331 109S478 126 640 22"/>
+      <path d="M0 193C180 191 200 132 331 117S478 134 640 31"/>
+      <path d="M0 202C180 200 200 141 331 126S478 143 640 42"/>
+    </g>
+    <circle cx="331" cy="102" r="3" fill="#86f1e5"/><circle cx="524" cy="78" r="3" fill="#86f1e5"/>
+  </svg>
+  <p class="eyebrow">개요 · 2025년 서울 전체</p>
+  <h1 id="headline">서울 고령 보행자 교통안전</h1>
+  <p class="lede">보행 사망자 122명 중 <strong>65세 이상 82명</strong></p>
+</section>
+<section class="metrics" aria-label="2025년 주요 지표">
+  <article class="metric" style="--i:0"><h2>고령 보행자 사고</h2><div class="display" aria-label="2,060건"><span class="number" data-value="2060" aria-hidden="true">2,060</span><span class="unit" aria-hidden="true">건</span></div><p>전년 대비 +97건</p></article>
+  <article class="metric" style="--i:1"><h2>고령 보행 사망자</h2><div class="display" aria-label="82명"><span class="number" data-value="82" aria-hidden="true">82</span><span class="unit" aria-hidden="true">명</span></div><p>전년 대비 +14명</p></article>
+  <article class="metric" style="--i:2"><h2>2025년 고령 보행자 사고다발지역</h2><div class="display" aria-label="71곳"><span class="number" data-value="71" aria-hidden="true">71</span><span class="unit" aria-hidden="true">곳</span></div><p>TAAS 선정 지역</p></article>
+  <article class="metric" style="--i:3"><h2>노인보호구역</h2><div class="display" aria-label="195곳"><span class="number" data-value="195" aria-hidden="true">195</span><span class="unit" aria-hidden="true">곳</span></div><p>2025년 말 지정 명단 기준</p></article>
+</section>
+<div class="controls"><span>2025년 집계 표시 · 5초 간격 전광판 효과</span><button id="toggle" type="button">효과 일시정지</button></div>
+<section class="charts" aria-label="사고 추이와 보호구역 거리">
+  <article class="panel">
+    <h2>서울 고령 보행자 사고 추이</h2>
+    <p class="sub">사고 건수 · 2022–2025년</p>
+    <svg class="chart" viewBox="0 0 480 211" role="img" aria-label="2022년 1,846건, 2023년 1,973건, 2024년 1,963건, 2025년 2,060건">
+      <g class="grid"><path d="M55 40H452M55 75H452M55 110H452M55 145H452M55 180H452"/></g>
+      <g text-anchor="end"><text x="48" y="44">2,100</text><text x="48" y="79">2,000</text><text x="48" y="114">1,900</text><text x="48" y="149">1,800</text><text x="48" y="184">1,700</text></g>
+      <path class="trend" pathLength="1" d="M76 128.9L194 84.45L312 87.95L430 54"/>
+      <g text-anchor="middle">
+        <g class="point" style="--delay:.38s"><circle cx="76" cy="128.9" r="4" fill="#8ceee6"/><text class="value" x="76" y="116">1,846</text></g>
+        <g class="point" style="--delay:.92s"><circle cx="194" cy="84.45" r="4" fill="#8ceee6"/><text class="value" x="194" y="71">1,973</text></g>
+        <g class="point" style="--delay:1.53s"><circle cx="312" cy="87.95" r="4" fill="#8ceee6"/><text class="value" x="312" y="75">1,963</text></g>
+        <g class="point" style="--delay:2.05s"><circle cx="430" cy="54" r="5" fill="#8ceee6"/><text class="value" x="430" y="40">2,060</text></g>
+        <text x="76" y="201">2022</text><text x="194" y="201">2023</text><text x="312" y="201">2024</text><text x="430" y="201">2025</text>
+      </g>
+    </svg>
+    <p class="note">한국도로교통공단 TAAS · 사고 발생 지역 기준</p>
+  </article>
+  <article class="panel">
+    <h2>사고다발지역과 보호구역 거리</h2>
+    <p class="sub">가장 가까운 확보 보호구역 경계까지 직선거리 · 2025년 71곳</p>
+    <svg class="chart" viewBox="0 0 480 211" role="img" aria-label="겹침 12곳, 겹치지 않고 100미터 이내 2곳, 100에서 300미터 9곳, 300에서 500미터 17곳, 500미터 초과 31곳">
+      <defs><linearGradient id="ruler"><stop stop-color="#8ceee6"/><stop offset="1" stop-color="#6fa1fb"/></linearGradient></defs>
+      <path d="M30 112H447l-8-5m8 5l-8 5" fill="none" stroke="url(#ruler)" stroke-width="2"/>
+      <path d="M30 104v16M100 104v16M240 104v16M380 104v16" stroke="#98b9da"/>
+      <g text-anchor="middle"><text x="30" y="139">0m</text><text x="100" y="139">100m</text><text x="240" y="139">300m</text><text x="380" y="139">500m</text></g>
+      <g text-anchor="middle">
+        <g class="point" style="--delay:.55s"><circle cx="30" cy="112" r="6" fill="#8ceee6"/><text class="value" x="30" y="88">12곳</text><text x="30" y="68">겹침</text></g>
+        <g class="point" style="--delay:.69s"><circle cx="65" cy="112" r="4" fill="#89dfff"/><text class="value" x="73" y="173">2곳</text><text x="73" y="192">100m 이내</text></g>
+        <g class="point" style="--delay:.83s"><circle cx="170" cy="112" r="5" fill="#89dfff"/><text class="value" x="170" y="88">9곳</text><text x="170" y="68">100–300m</text></g>
+        <g class="point" style="--delay:.97s"><circle cx="310" cy="112" r="5" fill="#8bb9ff"/><text class="value" x="310" y="88">17곳</text><text x="310" y="68">300–500m</text></g>
+        <g class="point" style="--delay:1.11s"><circle cx="421" cy="112" r="5" fill="#8bb9ff"/><text class="value" x="421" y="173">31곳</text><text x="421" y="192">500m 초과</text></g>
+      </g>
+    </svg>
+    <p class="note"><strong>점은 거리 구간별 집계</strong> · 확보한 보호구역 경계 기준 잠정값</p>
+  </article>
+</section>
+</main>
+<footer>자료 · 한국도로교통공단 TAAS, 서울시 지정 명단, 팀 공간 분석</footer>
+<script>
+const numbers = [...document.querySelectorAll('.number')];
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const format = new Intl.NumberFormat('ko-KR');
+const toggle = document.querySelector('#toggle');
+let timer;
+
+function animateNumbers() {
+  if (reducedMotion.matches) return;
+  for (const [index, number] of numbers.entries()) {
+    number.textContent = '0';
+    const value = Number(number.dataset.value);
+    const start = performance.now() + index * 125;
+    function draw(now) {
+      const fraction = Math.max(0, Math.min(1, (now - start) / 950));
+      number.textContent = format.format(Math.round(value * (1 - (1 - fraction) ** 3)));
+      if (fraction < 1) requestAnimationFrame(draw);
+    }
+    requestAnimationFrame(draw);
+  }
+}
+
+function refreshDisplay() {
+  if (document.hidden || reducedMotion.matches) return;
+  for (const number of numbers) {
+    number.parentElement.animate(
+      [{ boxShadow: 'inset 0 0 16px #6fffe449' }, { boxShadow: 'none' }],
+      { duration: 650, easing: 'ease-out' },
+    );
+  }
+}
+
+function setRefresh(enabled) {
+  clearInterval(timer);
+  timer = enabled ? setInterval(refreshDisplay, 5000) : undefined;
+  toggle.textContent = enabled ? '효과 일시정지' : '효과 재개';
+}
+
+toggle.addEventListener('click', () => setRefresh(!timer));
+reducedMotion.addEventListener('change', () => {
+  toggle.hidden = reducedMotion.matches;
+  setRefresh(!reducedMotion.matches);
+});
+toggle.hidden = reducedMotion.matches;
+animateNumbers();
+setRefresh(!reducedMotion.matches);
+</script>
+</body>
+</html>
